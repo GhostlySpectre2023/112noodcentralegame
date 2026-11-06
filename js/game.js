@@ -158,26 +158,50 @@ L.control.layers(baseLayers, { 'Routes': layers.routes }, { position: 'topright'
 
 // ---------- Routering (OSRM met fallback) ----------
 const routeCache = new Map();
-let osrmOk = true;
+// Routeservers (OSRM-protocol). De eerste is de server van OpenStreetMap Duitsland, de tweede de OSRM-demo.
+const ROUTERS = [
+  (a, b) => `https://routing.openstreetmap.de/routed-car/route/v1/driving/${a[1]},${a[0]};${b[1]},${b[0]}?overview=full&geometries=geojson`,
+  (a, b) => `https://router.project-osrm.org/route/v1/driving/${a[1]},${a[0]};${b[1]},${b[0]}?overview=full&geometries=geojson`,
+];
+const routerDown = [0, 0];            // tijdstip (ms) tot wanneer een server overgeslagen wordt
+let routeQueue = Promise.resolve();    // aanvragen rustig na elkaar
+function queued(fn) {
+  const p = routeQueue.then(fn, fn);
+  routeQueue = p.then(() => new Promise(r => setTimeout(r, 250)), () => new Promise(r => setTimeout(r, 250)));
+  return p;
+}
+async function fetchRoute(i, a, b) {
+  const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 7000);
+  try {
+    const r = await fetch(ROUTERS[i](a, b), { signal: ctrl.signal });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
+    const rt = j.routes && j.routes[0];
+    if (!rt || !rt.geometry || rt.geometry.coordinates.length < 2) throw new Error('geen route');
+    // voertuig blijft op de weg: start en einde zijn de punten waar de route de weg raakt
+    return { pts: rt.geometry.coordinates.map(c => [c[1], c[0]]), dist: rt.distance, dur: rt.duration, road: true };
+  } finally { clearTimeout(to); }
+}
 async function getRoute(a, b) {
   const key = a.map(x => x.toFixed(4)).join() + '|' + b.map(x => x.toFixed(4)).join();
   if (routeCache.has(key)) return routeCache.get(key);
   let res = null;
-  if (osrmOk) {
-    try {
-      const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 4000);
-      const url = `https://router.project-osrm.org/route/v1/driving/${a[1]},${a[0]};${b[1]},${b[0]}?overview=full&geometries=geojson`;
-      const r = await fetch(url, { signal: ctrl.signal }); clearTimeout(to);
-      const j = await r.json();
-      if (j.routes && j.routes[0]) {
-        const rt = j.routes[0];
-        res = { pts: rt.geometry.coordinates.map(c => [c[1], c[0]]), dist: rt.distance, dur: rt.duration };
-        // voertuig blijft op de weg: start en einde zijn de punten waar de route de weg raakt
-      }
-    } catch (e) { osrmOk = false; setTimeout(() => { osrmOk = true; }, 60000); }
+  for (let attempt = 0; attempt < 3 && !res; attempt++) {
+    for (let i = 0; i < ROUTERS.length && !res; i++) {
+      if (Date.now() < routerDown[i]) continue;
+      try { res = await queued(() => fetchRoute(i, a, b)); }
+      catch (e) { routerDown[i] = Date.now() + 8000; }
+    }
+    if (!res && attempt < 2) await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
   }
-  if (!res) { const d = distM(a, b) * 1.35, v = d < 3000 ? 8.5 : d < 10000 ? 12.5 : 18; res = { pts: [a, b], dist: d, dur: d / v }; }
+  if (!res) { // laatste noodoplossing: rechte lijn
+    const d = distM(a, b) * 1.35, v = d < 3000 ? 8.5 : d < 10000 ? 12.5 : 18;
+    res = { pts: [a, b], dist: d, dur: d / v, road: false };
+    if (!getRoute.warned) { getRoute.warned = true; log('🛣️ De routeserver antwoordt niet. Voertuigen rijden tijdelijk in rechte lijn.', '#f59e0b'); setTimeout(() => { getRoute.warned = false; }, 120000); }
+    return res; // niet bewaren, zodat het later opnieuw geprobeerd wordt
+  }
   routeCache.set(key, res);
+  if (routeCache.size > 400) routeCache.delete(routeCache.keys().next().value);
   return res;
 }
 function timeProfile(pts, cum) {
