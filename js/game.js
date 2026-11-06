@@ -24,7 +24,7 @@ const S = {
   cities: [], extraVehicles: {}, customStations: [],
   stations: [], units: [], incidents: [], calls: [], radio: [],
   nextId: 1, nextSpawn: 5, running: false, nextHospTick: 0,
-  theme: 'dark', incNo: 100, weather: WEATHER[1], nextWeather: 0, baseDate: null, logbook: [],
+  theme: (window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches) ? 'light' : 'dark', incNo: 100, weather: WEATHER[1], nextWeather: 0, baseDate: null, logbook: [],
 };
 
 function load() {

@@ -43,7 +43,7 @@ button.small.primary { background: var(--accent); color: var(--accentText); bord
 
 /* ================= STARTPAGINA ================= */
 #home { min-height: 100%; overflow-y: auto; }
-.wrap { max-width: 860px; margin: 0 auto; padding-left: max(18px, env(safe-area-inset-left, 0px)); padding-right: max(18px, env(safe-area-inset-right, 0px)); }
+.wrap { max-width: 1240px; margin: 0 auto; padding-left: max(18px, env(safe-area-inset-left, 0px)); padding-right: max(18px, env(safe-area-inset-right, 0px)); }
 .home-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; padding-block: 18px; }
 .brand-lg { display: flex; align-items: center; gap: 12px; text-decoration: none; color: var(--text); }
 .brand-lg svg { width: 46px; height: 46px; }
@@ -84,8 +84,8 @@ h2.sec { margin-top: 18px; }
 .prov > label { font-weight: 700; margin-bottom: 6px; }
 .prov .cities { display: flex; flex-wrap: wrap; gap: 4px 12px; }
 .prov .cities label { font-weight: 400; font-size: 14px; display: inline-flex; gap: 4px; align-items: center; }
-.consent { margin-top: 14px; align-items: flex-start; font-size: 14px; color: var(--muted); }
-.consent input { margin-top: 3px; flex: none; }
+label.chk.consent { margin-top: 14px; align-items: flex-start; font-size: 14px; color: var(--muted); }
+label.chk.consent input { margin-top: 3px; flex: none; }
 .start-foot { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
 .steps { list-style: none; counter-reset: s; padding: 0; margin: 12px 0 0; display: grid; gap: 10px; }
 .steps li { counter-increment: s; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; display: grid; gap: 4px; }
@@ -258,3 +258,24 @@ h2.sec { margin-top: 18px; }
   .unit-row .eta { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* startpagina: twee kolommen op brede schermen */
+.home-top { display: grid; grid-template-columns: 1fr; gap: 22px; }
+.home-left { display: flex; flex-direction: column; gap: 22px; min-width: 0; }
+.home-right { min-width: 0; }
+#hoe, #faq, .home-foot { max-width: 920px; }
+@media (min-width: 1000px) {
+  .home-top { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; align-items: start; }
+  .home-right { box-shadow: 0 10px 30px rgba(0,0,0,.18); position: sticky; top: 16px; }
+  .home-right h2 { font-size: 30px; }
+  .home-right .form-grid { grid-template-columns: 1fr 1fr; }
+  .home-right .form-grid .span2 { grid-column: 1 / -1; }
+  .home-right #centraleGrid { grid-template-columns: repeat(3, 1fr); }
+  .steps { grid-template-columns: repeat(2, 1fr); }
+  .stats { grid-template-columns: repeat(2, 1fr); }
+}
+@media (min-width: 1240px) {
+  .stats { grid-template-columns: repeat(4, 1fr); }
+  .steps { grid-template-columns: repeat(4, 1fr); }
+  #hoe { max-width: none; }
+}
