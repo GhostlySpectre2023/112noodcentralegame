@@ -22,6 +22,13 @@ python3 -m http.server 8000
 - **Aanrijnorm**: 15/20/30 minuten per prioriteit, met een percentage in de bovenbalk.
 - **Hulp van een buurcentrale** als je zelf geen middelen meer hebt.
 - Krediet verdienen, extra voertuigen kopen en nieuwe posten bouwen. Voortgang wordt in je browser bewaard.
+- **Live klok** met seconden en datum, **weer** (regen, mist, storm, ijzel…) dat de rijtijden en het soort oproepen beïnvloedt, en dag/nacht.
+- **Genummerde inzetten** met een lopende timer en de ingezette eenheden met hun status.
+- **Overdracht van de vorige ploeg**: je start met enkele lopende inzetten.
+- **Logboek van de 112-lijn**.
+- **MUG-helikopter** (vliegt rechtdoor, niet inzetbaar 's nachts of bij mist, storm en ijzel).
+- Lijst van eenheden met filter op type, stad en status, en een zoekveld.
+- **Licht en donker thema**.
 - Spelsnelheid pauze/1x/2x/4x (spatiebalk = pauze).
 
 Simulatiespel: alle meldingen en personen zijn fictief. Bij echte nood: bel 112.

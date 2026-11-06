@@ -108,15 +108,18 @@ const VEHICLE_TYPES = {
   TW:  { name: 'Tankwagen', short: 'TW', service: 'fire', color: '#e85d04', speed: 0.8, price: 4500 },
   HV:  { name: 'Hulpverleningswagen', short: 'HV', service: 'fire', color: '#9d0208', speed: 0.9, price: 6000 },
   POL: { name: 'Interventiewagen', short: 'POL', service: 'pol', color: '#1d4ed8', speed: 1.1, price: 2000 },
+  HELI: { name: 'MUG-helikopter', short: 'HELI', service: 'med', color: '#f43f5e', speed: 1, price: 30000, air: true },
 };
+// steden met een helikopterbasis bij het ziekenhuis
+const HELI_BASES = ['brugge', 'antwerpen', 'brussel', 'luik', 'bastenaken', 'hasselt'];
 // Een hoger gekwalificeerde eenheid mag een lagere vervangen
-const SUBSTITUTE = { PIT: ['MUG'] };
+const SUBSTITUTE = { PIT: ['MUG', 'HELI'], MUG: ['HELI'] };
 
 // Posttypes
 const STATION_TYPES = {
   fire: { name: 'Brandweerpost', icon: '🚒', color: '#d62828', allowed: ['AP', 'AL', 'TW', 'HV'], price: 25000 },
   med:  { name: 'Ambulancepost', icon: '🚑', color: '#f2c200', allowed: ['AMB', 'PIT'], price: 15000 },
-  hosp: { name: 'Ziekenhuis', icon: '🏥', color: '#16a34a', allowed: ['MUG'], price: 40000 },
+  hosp: { name: 'Ziekenhuis', icon: '🏥', color: '#16a34a', allowed: ['MUG', 'HELI'], price: 40000 },
   pol:  { name: 'Politiekantoor', icon: '🚓', color: '#1d4ed8', allowed: ['POL'], price: 15000 },
 };
 
@@ -241,3 +244,14 @@ const CATEGORIES = { med: '🩺 Medisch', verkeer: '🚗 Verkeer', brand: '🔥 
 const STREETS = ['Kerkstraat', 'Stationsstraat', 'Molenstraat', 'Dorpsstraat', 'Nieuwstraat', 'Schoolstraat', 'Kapelstraat', 'Markt', 'Grote Markt',
   'Steenweg', 'Hoogstraat', 'Bruggestraat', 'Gentsesteenweg', 'Kortrijksestraat', 'Lindenlaan', 'Beukenlaan', 'Veldstraat', 'Industrielaan',
   'Zandstraat', 'Bosstraat', 'Ringlaan', 'Koningin Astridlaan', 'Leopoldlaan', 'Vrijheidstraat', 'Meersstraat', 'Ieperstraat', 'Hogeweg'];
+
+// Weer: speed = rijsnelheidsfactor, boost = extra kans op bepaalde incidenten, fly = helikopter mag vliegen
+const WEATHER = [
+  { id: 'helder', name: 'Helder', icon: '☀️', speed: 1, fly: true, boost: {}, w: 4 },
+  { id: 'bewolkt', name: 'Bewolkt', icon: '☁️', speed: 1, fly: true, boost: {}, w: 4 },
+  { id: 'lregen', name: 'Lichte regen', icon: '🌦️', speed: 0.93, fly: true, boost: { vkl: 1.3 }, w: 3 },
+  { id: 'regen', name: 'Zware regen', icon: '🌧️', speed: 0.85, fly: true, boost: { vkl: 1.6, water: 3 }, w: 2 },
+  { id: 'mist', name: 'Mist', icon: '🌫️', speed: 0.8, fly: false, boost: { vkl: 1.8, vkz: 1.5 }, w: 1.5 },
+  { id: 'storm', name: 'Storm', icon: '🌪️', speed: 0.85, fly: false, boost: { water: 4, dier: 1.5 }, w: 1 },
+  { id: 'ijzel', name: 'IJzel', icon: '🧊', speed: 0.7, fly: false, boost: { val: 2.5, vkl: 2, vkz: 1.5 }, w: 0.7 },
+];

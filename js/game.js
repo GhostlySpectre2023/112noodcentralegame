@@ -24,19 +24,20 @@ const S = {
   cities: [], extraVehicles: {}, customStations: [],
   stations: [], units: [], incidents: [], calls: [], radio: [],
   nextId: 1, nextSpawn: 5, running: false, nextHospTick: 0,
+  theme: 'dark', incNo: 100, weather: WEATHER[1], nextWeather: 0, baseDate: null, logbook: [],
 };
 
 function load() {
   try {
     const d = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
     if (d) for (const k of ['credits', 'xp', 'done', 'failed', 'transfers', 'normHit', 'normTotal', 'cities', 'extraVehicles',
-      'customStations', 'sound', 'voice', 'player', 'day', 'start']) if (d[k] !== undefined) S[k] = d[k];
+      'customStations', 'sound', 'voice', 'player', 'day', 'start', 'theme']) if (d[k] !== undefined) S[k] = d[k];
   } catch (e) { /* geen opslag */ }
 }
 function save() {
   try {
     const o = {}; for (const k of ['credits', 'xp', 'done', 'failed', 'transfers', 'normHit', 'normTotal', 'cities', 'extraVehicles',
-      'customStations', 'sound', 'voice', 'player', 'day', 'start']) o[k] = S[k];
+      'customStations', 'sound', 'voice', 'player', 'day', 'start', 'theme']) o[k] = S[k];
     localStorage.setItem(SAVE_KEY, JSON.stringify(o));
   } catch (e) { /* negeren */ }
 }
@@ -50,8 +51,17 @@ const level = () => Math.floor(Math.sqrt(S.xp / 400)) + 1;
 const fmtTime = s => { s = Math.max(0, Math.floor(s)); const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, x = s % 60;
   return (h ? h + ':' : '') + String(m).padStart(2, '0') + ':' + String(x).padStart(2, '0'); };
 const realMin = gameSec => gameSec * DRIVE_COMPRESS / 60;
-const clockSec = () => (S.startSec + S.time * DRIVE_COMPRESS) % 86400;
-const clockStr = (sec = clockSec()) => String(Math.floor(sec / 3600)).padStart(2, '0') + ':' + String(Math.floor(sec / 60) % 60).padStart(2, '0');
+const totalSec = () => S.startSec + S.time * DRIVE_COMPRESS;
+const clockSec = () => totalSec() % 86400;
+const p2 = n => String(Math.floor(n)).padStart(2, '0');
+const clockStr = (sec = clockSec()) => p2(sec / 3600) + ':' + p2(sec / 60 % 60);
+const clockLong = (sec = clockSec()) => clockStr(sec) + ':' + p2(sec % 60);
+const isNight = () => { const h = clockSec() / 3600; return h < 7 || h >= 21; };
+function dateStr() {
+  const d = new Date(S.baseDate || Date.now()); d.setDate(d.getDate() + Math.floor(totalSec() / 86400));
+  return d.toLocaleDateString('nl-BE', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+const DAY_NAMES = ['zo', 'ma', 'di', 'wo', 'do', 'vr', 'za'];
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 function offsetKm(lat, lng, north, east) { return [lat + north / 111.32, lng + east / (111.32 * Math.cos(lat * Math.PI / 180))]; }
 function distM(a, b) {
@@ -60,7 +70,12 @@ function distM(a, b) {
   return 2 * R * Math.asin(Math.sqrt(x));
 }
 function gauss() { let u = 0, v = 0; while (!u) u = Math.random(); while (!v) v = Math.random(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); }
+function logbook(text) {
+  S.logbook.unshift({ t: clockLong(), text }); if (S.logbook.length > 120) S.logbook.pop();
+  logDirty = true;
+}
 function log(msg, color) {
+  logbook(msg.replace(/<[^>]+>/g, ''));
   const d = document.createElement('div'); d.innerHTML = msg; if (color) d.style.borderLeftColor = color;
   $('#log').prepend(d); setTimeout(() => d.remove(), 8000);
   while ($('#log').children.length > 8) $('#log').lastChild.remove();
@@ -107,7 +122,12 @@ const baseLayers = {
     attribution: '&copy; OpenStreetMap-bijdragers &copy; CARTO' }),
   'Straten (OSM)': L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap-bijdragers' }),
 };
-baseLayers['Donker'].addTo(map);
+function applyTheme() {
+  document.documentElement.dataset.theme = S.theme;
+  const want = S.theme === 'light' ? 'Straten (OSM)' : 'Donker';
+  for (const [k, l] of Object.entries(baseLayers)) { if (k === want) { if (!map.hasLayer(l)) l.addTo(map); } else if (map.hasLayer(l)) map.removeLayer(l); }
+  const b = document.getElementById('btnTheme'); if (b) b.textContent = S.theme === 'light' ? '🌙' : '☀️';
+}
 const layers = { stations: L.layerGroup().addTo(map), units: L.layerGroup().addTo(map), incidents: L.layerGroup().addTo(map), routes: L.layerGroup().addTo(map) };
 L.control.layers(baseLayers, { 'Posten': layers.stations, 'Voertuigen': layers.units, 'Routes': layers.routes }, { position: 'topright' }).addTo(map);
 
@@ -156,7 +176,8 @@ function buildWorld() {
       const k = 0.6 + c.size * 0.2;
       const [lat, lng] = offsetKm(c.lat, c.lng, n * k, e * k);
       const name = type === 'hosp' ? `AZ ${c.name.split(' (')[0]}` : `${STATION_TYPES[type].name} ${c.name.split(' (')[0]}`;
-      addStation({ id: `${cid}-${type}`, type, name, lat, lng, cityId: cid }, fleet[type]);
+      const fl = type === 'hosp' && HELI_BASES.includes(cid) ? [...fleet[type], 'HELI'] : fleet[type];
+      addStation({ id: `${cid}-${type}`, type, name, lat, lng, cityId: cid }, fl);
     }
   }
   for (const cs of S.customStations) if (S.cities.includes(cs.cityId)) addStation({ ...cs }, []);
@@ -189,7 +210,7 @@ function addUnit(st, type, temp = false) {
   const VT = VEHICLE_TYPES[type];
   const u = {
     id: S.nextId++, type, stationId: st.id, status: 1, lat: st.lat, lng: st.lng, incidentId: null, move: null, temp,
-    name: temp ? `${VT.short} Buurcentrale ${st.unitCount[type]}` : `${VT.short} ${city ? city.name.split(' ')[0] : st.name} ${st.unitCount[type]}`,
+    name: temp ? `${VT.short} Buurcentrale ${st.unitCount[type]}` : type === 'HELI' ? `HELI ${city ? city.name.split(' ')[0] : st.name}` : `${VT.short} ${city ? city.name.split(' ')[0] : st.name} ${st.unitCount[type]}`,
   };
   u.station = st;
   u.marker = L.marker([u.lat, u.lng], { icon: unitIcon(u), zIndexOffset: 500 }).bindTooltip(() => `${esc(u.name)} · status ${u.status}`);
@@ -209,6 +230,9 @@ function setStatus(u, s) {
   dirty = true;
 }
 const stationOf = u => u.station;
+const grounded = u => VEHICLE_TYPES[u.type].air && (isNight() || !S.weather.fly);
+const isFree = u => (u.status === 1 || u.status === 5) && !grounded(u);
+const statusCode = u => grounded(u) && u.status === 1 ? '–' : u.status;
 
 // ---------- Ziekenhuizen ----------
 function hospStatus(h) { return h.load < 0.6 ? 'open' : h.load < 0.9 ? 'druk' : 'volzet'; }
@@ -248,7 +272,7 @@ function missingList(inc, need) {
 const fitsType = (needKey, unitType) => needKey === unitType || (SUBSTITUTE[needKey] || []).includes(unitType);
 
 // ---------- Oproepen ----------
-function hasType(k) { return S.units.some(u => !u.temp && fitsType(k, u.type)); }
+function hasType(k) { return S.units.some(u => !u.temp && u.type !== 'HELI' && fitsType(k, u.type)); }
 function availableTypes() {
   const lv = level();
   return INCIDENT_TYPES.filter(t => (t.minLevel || 0) < lv + 1 && Object.keys(t.need).every(hasType));
@@ -263,9 +287,10 @@ function hourFactor() {
 function spawnCall() {
   if (!S.cities.length) return;
   const types = availableTypes(); if (!types.length) return;
-  const total = types.reduce((a, t) => a + t.weight, 0);
+  const wt = t => t.weight * (S.weather.boost[t.id] || 1);
+  const total = types.reduce((a, t) => a + wt(t), 0);
   let r = Math.random() * total, type = types[0];
-  for (const t of types) { r -= t.weight; if (r <= 0) { type = t; break; } }
+  for (const t of types) { r -= wt(t); if (r <= 0) { type = t; break; } }
   const cw = S.cities.map(id => CITY_BY_ID[id].size ** 1.5), cwt = cw.reduce((a, b) => a + b, 0);
   let rc = Math.random() * cwt, city = CITY_BY_ID[S.cities[0]];
   for (let i = 0; i < S.cities.length; i++) { rc -= cw[i]; if (rc <= 0) { city = CITY_BY_ID[S.cities[i]]; break; } }
@@ -372,7 +397,7 @@ function transferCall(c = currentCall) {
 function createIncident(c) {
   const T = TYPE_BY_ID[c.typeId], P = TYPE_BY_ID[c.protoId];
   const nUnits = Object.values(T.need).reduce((a, b) => a + b, 0);
-  const inc = { id: c.id, typeId: T.id, protoId: P.id, prio: +c.prio, lat: c.lat, lng: c.lng, addr: c.addr, cityId: c.cityId,
+  const inc = { no: ++S.incNo, id: c.id, typeId: T.id, protoId: P.id, prio: +c.prio, lat: c.lat, lng: c.lng, addr: c.addr, cityId: c.cityId,
     created: S.time, patience: 240 + nUnits * 30, waited: 0, progress: 0, state: 'open', revealed: c.protoId === c.typeId, arrived: false };
   inc.marker = L.marker([inc.lat, inc.lng], {
     icon: L.divIcon({ className: '', html: `<div class="mk mk-inc">${P.icon}</div>`, iconSize: [32, 32], iconAnchor: [16, 16] }),
@@ -380,9 +405,12 @@ function createIncident(c) {
   }).bindTooltip(() => `${TYPE_BY_ID[inc.revealed ? inc.typeId : inc.protoId].name} · ${esc(inc.addr)}`).addTo(layers.incidents);
   inc.marker.on('click', () => openDispatch(inc.id));
   S.incidents.push(inc);
+  logbook(`${incNo(inc)} aangemaakt: ${P.name}, ${PRIORITIES[inc.prio].name}, ${inc.addr}`);
   dirty = true;
-  openDispatch(inc.id);
+  if (!c.silent) openDispatch(inc.id);
+  return inc;
 }
+function incNo(inc) { return '#' + String(inc.no).padStart(4, '0'); }
 function incName(inc) { const t = TYPE_BY_ID[inc.revealed ? inc.typeId : inc.protoId]; return `${t.icon} ${t.name}`; }
 
 // ---------- Radio ----------
@@ -445,11 +473,11 @@ function openDispatch(id) {
 function dispCandidates() {
   const need = shownNeed(dispInc), only = $('#dispOnlyNeeded').checked;
   return S.units
-    .filter(u => (u.status === 1 || u.status === 5) && (!only || Object.keys(need).some(k => fitsType(k, u.type))))
+    .filter(u => isFree(u) && (!only || Object.keys(need).some(k => fitsType(k, u.type))))
     .map(u => ({ u, d: distM([u.lat, u.lng], [dispInc.lat, dispInc.lng]) }))
     .sort((a, b) => a.d - b.d).slice(0, 60);
 }
-function etaMin(u, d) { return d * 1.35 / 12.5 / VEHICLE_TYPES[u.type].speed / 60 / (dispInc && dispInc.prio < 3 ? 1.25 : 1); }
+function etaMin(u, d) { if (VEHICLE_TYPES[u.type].air) return d / 55 / 60 + 3; return d * 1.35 / 12.5 / VEHICLE_TYPES[u.type].speed / S.weather.speed / 60 / (dispInc && dispInc.prio < 3 ? 1.25 : 1); }
 function renderDispatch() {
   if (!dispInc) return;
   const P = PRIORITIES[dispInc.prio];
@@ -472,8 +500,8 @@ function renderDispatch() {
 }
 function autoSuggest() {
   const need = shownNeed(dispInc), have = incStatus(dispInc);
-  const all = S.units.filter(u => u.status === 1 || u.status === 5)
-    .map(u => ({ u, d: distM([u.lat, u.lng], [dispInc.lat, dispInc.lng]) })).sort((a, b) => a.d - b.d);
+  const all = S.units.filter(isFree)
+    .map(u => ({ u, d: distM([u.lat, u.lng], [dispInc.lat, dispInc.lng]) })).sort((a, b) => etaMin(a.u, a.d) - etaMin(b.u, b.d));
   dispSel = new Set();
   for (const [k, n] of Object.entries(need)) {
     let missing = n - (have[k].scene + have[k].way);
@@ -488,11 +516,12 @@ function sendSelected() {
   const sent = [];
   for (const id of ids) {
     const u = S.units.find(x => x.id === id);
-    if (!u || (u.status !== 1 && u.status !== 5)) continue;
+    if (!u || !isFree(u)) continue;
     dispatchUnit(u, inc); sent.push(u.name);
   }
   if (sent.length) {
     beep(600, 0.1, 1);
+    logbook(`${incNo(inc)} gealarmeerd: ${sent.join(', ')}`);
     radio('Meldkamer', `${sent.join(', ')}: rij uit naar ${inc.addr}, ${TYPE_BY_ID[inc.revealed ? inc.typeId : inc.protoId].name.toLowerCase()}, ${PRIORITIES[inc.prio].name}.`, { me: true });
   }
 }
@@ -521,9 +550,10 @@ function neighborHelp() {
 }
 async function driveTo(u, dest, urgent, onArrive) {
   const token = (u.moveToken = (u.moveToken || 0) + 1);
-  const r = await getRoute([u.lat, u.lng], dest);
+  const air = VEHICLE_TYPES[u.type].air;
+  const r = air ? { pts: [[u.lat, u.lng], dest], dur: distM([u.lat, u.lng], dest) / 55 + 180 } : await getRoute([u.lat, u.lng], dest);
   if (u.moveToken !== token) return;
-  const dur = Math.max(4, r.dur / VEHICLE_TYPES[u.type].speed / DRIVE_COMPRESS / urgent);
+  const dur = Math.max(4, air ? r.dur / DRIVE_COMPRESS : r.dur / VEHICLE_TYPES[u.type].speed / S.weather.speed / DRIVE_COMPRESS / urgent);
   u.move = { pts: r.pts, cum: prepRoute(r.pts), dur, t: 0, onArrive };
   if (u.line) layers.routes.removeLayer(u.line);
   u.line = L.polyline(r.pts, { color: VEHICLE_TYPES[u.type].color, weight: 3, opacity: 0.55, dashArray: urgent > 1 ? null : '4 6' }).addTo(layers.routes);
@@ -613,7 +643,7 @@ function completeIncident(inc) {
   const speedBonus = Math.max(0, 1 - inc.waited / inc.patience);
   const reward = Math.round(T.reward * (0.7 + 0.6 * speedBonus));
   S.credits += reward; addXp(Math.round(T.reward / 10)); S.done++;
-  log(`✅ <b>${T.name}</b> afgehandeld (+€${reward})`, '#22c55e');
+  log(`✅ ${incNo(inc)} <b>${T.name}</b> afgehandeld (+€${reward})`, '#22c55e');
   let transported = false;
   for (const u of onScene) {
     if (u.status === 3 && T.transport && !transported && u.type === 'AMB') {
@@ -628,7 +658,7 @@ function completeIncident(inc) {
 function failIncident(inc) {
   const T = TYPE_BY_ID[inc.typeId];
   S.failed++; addXp(-50); S.credits = Math.max(0, S.credits - Math.round(T.reward / 3));
-  log(`❌ <b>${T.name}</b> in ${esc(CITY_BY_ID[inc.cityId].name)} liep uit de hand — te laat!`, '#ef4444');
+  log(`❌ ${incNo(inc)} <b>${T.name}</b> in ${esc(CITY_BY_ID[inc.cityId].name)} liep uit de hand — te laat!`, '#ef4444');
   S.units.filter(u => u.incidentId === inc.id).forEach(returnToStation);
   removeIncident(inc);
 }
@@ -640,7 +670,7 @@ function removeIncident(inc) {
 }
 
 // ---------- Hoofdlus ----------
-let dirty = true, radioDirty = true, last = performance.now(), uiTimer = 0;
+let dirty = true, radioDirty = true, logDirty = true, last = performance.now(), uiTimer = 0;
 function tick(now) {
   const realDt = Math.min(0.5, (now - last) / 1000); last = now;
   const dt = realDt * S.speed;
@@ -652,6 +682,7 @@ function tick(now) {
       const base = 38 / Math.sqrt(Math.max(1, S.cities.length)) / (1 + level() * 0.08) / hourFactor();
       S.nextSpawn = S.time + Math.max(7, base * rnd(0.6, 1.4));
     }
+    if (S.time >= S.nextWeather) setWeather();
     // ziekenhuisbezetting schommelt
     if (S.time >= S.nextHospTick) {
       S.nextHospTick = S.time + 30;
@@ -701,9 +732,40 @@ function tick(now) {
   requestAnimationFrame(tick);
 }
 
+function setWeather(initial) {
+  const prev = S.weather, tot = WEATHER.reduce((a, w) => a + w.w, 0);
+  let r = Math.random() * tot; for (const w of WEATHER) { r -= w.w; if (r <= 0) { S.weather = w; break; } }
+  S.nextWeather = S.time + rnd(1.5, 3.5) * 3600 / DRIVE_COMPRESS;
+  if (!initial && prev !== S.weather) {
+    log(`${S.weather.icon} Weerbericht: ${S.weather.name.toLowerCase()}${S.weather.speed < 1 ? ' — langere rijtijden' : ''}${!S.weather.fly ? ', helikopters aan de grond' : ''}.`, '#38bdf8');
+  }
+  S.temp = Math.round(rnd(-2, 22) - (S.weather.id === 'ijzel' ? 6 : 0));
+}
+
+// ---------- Overdracht vorige ploeg ----------
+function shiftHandover() {
+  const types = availableTypes().filter(t => t.prio > 1 || t.cat === 'med');
+  const n = Math.min(3, 1 + Math.floor(Math.random() * 3));
+  let made = 0;
+  for (let i = 0; i < n && types.length; i++) {
+    const T = pick(types), cid = pick(S.cities), c = CITY_BY_ID[cid];
+    const [lat, lng] = offsetKm(c.lat, c.lng, gauss() * c.size, gauss() * c.size);
+    const inc = createIncident({ id: S.nextId++, typeId: T.id, protoId: T.id, prio: T.prio, lat, lng, cityId: cid, silent: true,
+      addr: `${pick(STREETS)} ${Math.floor(rnd(1, 180))}, ${c.name.split(' (')[0]}` });
+    inc.created -= rnd(60, 160);
+    dispInc = inc; autoSuggest();
+    for (const id of dispSel) { const u = S.units.find(x => x.id === id); if (u) dispatchUnit(u, inc); }
+    dispInc = null; dispSel = new Set(); made++;
+  }
+  logbook(`Overdracht van de vorige ploeg: ${made} lopende ${made === 1 ? 'inzet' : 'inzetten'}.`);
+  radio('Meldkamer', `Overdracht ontvangen: ${made} lopende ${made === 1 ? 'inzet' : 'inzetten'}.`, { me: true });
+}
+
 // ---------- UI ----------
 function renderUI() {
-  $('#clock').textContent = clockStr();
+  $('#clock').textContent = clockLong();
+  $('#dateInfo').textContent = `${dateStr()} · ${S.weather.icon} ${S.weather.name}, ${S.temp ?? 10} °C · ${isNight() ? 'nacht' : 'dag'}`;
+  if (logDirty) renderLogbook();
   $('#credits').textContent = '€' + S.credits.toLocaleString('nl-BE');
   $('#level').textContent = level(); $('#xp').textContent = S.xp;
   $('#done').textContent = S.done; $('#failed').textContent = S.failed;
@@ -725,9 +787,12 @@ function renderUI() {
     const pct = inc.state === 'working' ? inc.progress / T.dur * 100 : 0;
     const pat = Math.max(0, 1 - inc.waited / inc.patience) * 100;
     const mins = realMin(S.time - inc.created);
-    return `<div class="card" data-inc="${inc.id}"><div class="row"><span class="title">${incName(inc)}</span>
+    const us = S.units.filter(u => u.incidentId === inc.id);
+    return `<div class="card" data-inc="${inc.id}"><div class="row"><span class="inc-no">${incNo(inc)}</span><span class="inc-time">${fmtTime(realMin(S.time - inc.created) * 60)}</span></div>
+      <div class="row"><span class="title">${incName(inc)}</span>
       <button class="small" data-alarm="${inc.id}">Alarmeren</button></div>
       <div class="sub"><span style="color:${P.color}">${P.name}</span> · ${esc(inc.addr)} ${inc.arrived ? '' : `· <span class="${mins <= P.norm ? 'norm-ok' : 'norm-bad'}">${Math.floor(mins)}/${P.norm} min</span>`}</div>
+      <div class="chips">${us.map(u => `<span class="uchip"><span class="st st${u.status}">${u.status}</span> ${esc(u.name)}</span>`).join('')}</div>
       <div class="chips">${needChips(shownNeed(inc), incStatus(inc))}</div>
       ${inc.state === 'working' ? `<div class="bar"><div style="width:${pct}%"></div></div>` : `<div class="bar timer" title="Resterende tijd"><div style="width:${pat}%;background:${pat < 30 ? '#ef4444' : ''}"></div></div>`}
     </div>`;
@@ -755,13 +820,18 @@ function renderRadio() {
 }
 const STATUS_TXT = { 1: 'Beschikbaar in post', 2: 'Onderweg (prio)', 3: 'Ter plaatse', 4: 'Patiënttransport', 5: 'Terug naar post' };
 function renderUnits() {
-  const fc = $('#unitFilterCity').value, fs = $('#unitFilterStatus').value;
-  const list = S.units.filter(u => (!fc || stationOf(u)?.cityId === fc) && (!fs || u.status == fs));
+  const fc = $('#unitFilterCity').value, fs = $('#unitFilterStatus').value, ft = $('#unitFilterType').value, q = $('#unitSearch').value.trim().toLowerCase();
+  const list = S.units.filter(u => (!fc || stationOf(u)?.cityId === fc) && (!fs || u.status == fs) && (!ft || u.type === ft) && (!q || u.name.toLowerCase().includes(q)))
+    .sort((a, b) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name));
   $('#unitList').innerHTML = list.slice(0, 300).map(u => {
     const VT = VEHICLE_TYPES[u.type];
-    return `<div class="card" data-unit="${u.id}"><div class="row"><span><span class="st st${u.status}">${u.status}</span> <b style="color:${VT.color}">${VT.short}</b> ${esc(u.name)}</span></div>
-      <div class="sub">${u.awaitHosp ? 'Wacht op ziekenhuiskeuze' : STATUS_TXT[u.status]} · ${esc(stationOf(u)?.name || '')}</div></div>`;
+    return `<div class="card" data-unit="${u.id}"><div class="row"><span><span class="st st${grounded(u) && u.status === 1 ? 'x' : u.status}">${statusCode(u)}</span> <b style="color:${VT.color}">${VT.short}</b> ${esc(u.name)}</span></div>
+      <div class="sub">${u.awaitHosp ? 'Wacht op ziekenhuiskeuze' : grounded(u) && u.status === 1 ? 'Niet inzetbaar (nacht/weer)' : STATUS_TXT[u.status]} · ${esc(stationOf(u)?.name || '')}</div></div>`;
   }).join('') + (list.length > 300 ? `<p class="empty">… en nog ${list.length - 300} voertuigen (gebruik de filter)</p>` : '') || '<p class="empty">Geen voertuigen.</p>';
+}
+function renderLogbook() {
+  logDirty = false;
+  $('#logbook').innerHTML = S.logbook.length ? S.logbook.slice(0, 60).map(l => `<div class="lb"><span class="t">${l.t}</span> ${esc(l.text)}</div>`).join('') : '<p class="empty">Nog niets gelogd.</p>';
 }
 function renderHospitals() {
   $('#hospitalList').innerHTML = hospitals().map(h => `<div class="card hosp-row" data-st="${h.id}"><span><b>${esc(h.name)}</b><br><small class="muted">${h.specs.map(s => SPEC_TXT[s]).join(' · ') || 'Basis spoed'}</small></span>
@@ -909,7 +979,8 @@ const stClick = e => {
   const c = e.target.closest('[data-st]'); if (c) { const st = S.stations.find(s => s.id === c.dataset.st); if (st) map.flyTo([st.lat, st.lng], 15, { duration: 0.6 }); }
 };
 $('#stationList').onclick = stClick; $('#hospitalList').onclick = stClick;
-$('#unitFilterCity').onchange = renderUnits; $('#unitFilterStatus').onchange = renderUnits;
+$('#unitFilterCity').onchange = renderUnits; $('#unitFilterStatus').onchange = renderUnits; $('#unitFilterType').onchange = renderUnits; $('#unitSearch').oninput = renderUnits;
+$('#btnTheme').onclick = () => { S.theme = S.theme === 'light' ? 'dark' : 'light'; applyTheme(); save(); };
 $('#questions').onclick = e => { const b = e.target.closest('[data-q]'); if (b) askQuestion(b.dataset.q); };
 $('#callProto').onchange = e => { if (!currentCall) return; currentCall.protoId = e.target.value; if (e.target.value && !currentCall.prio) currentCall.prio = TYPE_BY_ID[e.target.value].prio; renderCall(); };
 $('#callPrio').onclick = e => { const b = e.target.closest('[data-prio]'); if (b && currentCall) { currentCall.prio = +b.dataset.prio; renderCall(); } };
@@ -946,8 +1017,14 @@ $('#startGame').onclick = () => {
   if (S.start === 'now') { const d = new Date(); S.startSec = d.getHours() * 3600 + d.getMinutes() * 60; }
   else { const [h, m] = S.start.split(':').map(Number); S.startSec = h * 3600 + m * 60; }
   S.cities = [...S.pendingCities]; S.pendingCities = null; S.time = 0; S.nextHospTick = 0; currentCall = null;
+  { const d = new Date(), wd = d.getDay(), we = wd === 0 || wd === 6;
+    if (S.day === 'weekend' && !we) d.setDate(d.getDate() + (6 - wd));
+    if (S.day === 'werkdag' && we) d.setDate(d.getDate() + (wd === 6 ? 2 : 1));
+    d.setHours(0, 0, 0, 0); S.baseDate = d.getTime(); }
+  S.incNo = 100 + Math.floor(Math.random() * 60); S.logbook = []; setWeather(true);
   ['#regionModal', '#callModal', '#dispatchModal', '#hospModal'].forEach(hide);
   save(); buildWorld(); S.running = true;
+  shiftHandover();
   log(`🟢 Dienst gestart${S.player ? ` voor <b>${esc(S.player)}</b>` : ''} in <b>${esc(regionLabel())}</b>. Succes!`, '#22c55e');
   radio('Meldkamer', `Dienst gestart om ${clockStr()}. Alle ploegen: ${regionLabel()} is bemand.`, { me: true });
 };
@@ -962,6 +1039,8 @@ document.addEventListener('keyup', e => { if (e.code === 'KeyT') pttStop(); });
 
 // ---------- Start ----------
 load();
+applyTheme();
+$('#unitFilterType').innerHTML = '<option value="">Alle types</option>' + Object.entries(VEHICLE_TYPES).map(([k, v]) => `<option value="${k}">${k} · ${v.name}</option>`).join('');
 $('#btnSound').textContent = S.sound ? '🔊' : '🔇';
 $('#btnVoice').style.opacity = S.voice ? 1 : 0.4;
 if (!S.cities.length) S.cities = PROVINCES[0].cities.map(c => c.id);

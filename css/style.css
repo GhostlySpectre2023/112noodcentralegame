@@ -170,3 +170,32 @@ h3.pad { margin: 8px 20px; font-size: 14px; }
   .disclaimer { display: none; }
 }
 .tabs button { white-space: nowrap; font-size: 13px; padding: 11px 2px; }
+
+/* ===== v3: klok, inzetten, logboek, licht thema ===== */
+.clockbox { display: flex; flex-direction: column; line-height: 1.1; }
+.bigclock { font-family: ui-monospace, Menlo, monospace; font-size: 18px; font-weight: 700; letter-spacing: .03em; }
+.clockbox small { color: var(--muted); font-size: 11px; }
+#topbar { height: 56px; }
+main { height: calc(100% - 56px); }
+.inc-no { font-family: ui-monospace, monospace; color: var(--muted); font-size: 12px; }
+.inc-time { font-family: ui-monospace, monospace; color: var(--muted); font-size: 12px; }
+.uchip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; padding: 1px 6px 1px 1px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); text-transform: uppercase; }
+.stx { background: #64748b; color: #fff; }
+.logbook { font-size: 12px; display: flex; flex-direction: column; gap: 3px; max-height: 220px; overflow-y: auto; background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
+.lb .t { font-family: ui-monospace, monospace; color: var(--muted); margin-right: 6px; }
+.filters input { flex: 1; min-width: 0; }
+
+:root[data-theme="light"] {
+  --bg: #e9edf3; --panel: #ffffff; --panel2: #f3f5f9; --line: #d3d9e3; --text: #0f172a; --muted: #5b6577;
+}
+:root[data-theme="light"] #topbar { background: #ffffff; }
+:root[data-theme="light"] .call-head { background: #fde2e4; }
+:root[data-theme="light"] .msg.caller { background: #fde2e4; }
+:root[data-theme="light"] .msg.me { background: #dbeafe; }
+:root[data-theme="light"] .convo, :root[data-theme="light"] .bar, :root[data-theme="light"] .chip { background: #eef1f6; }
+:root[data-theme="light"] .unit-row.sel, :root[data-theme="light"] .centrale.on { background: #fff1e6; }
+:root[data-theme="light"] .radio.me { background: #fff7ed; }
+:root[data-theme="light"] #log div { background: rgba(255,255,255,.95); color: var(--text); }
+:root[data-theme="light"] .card.ringing { animation-name: ringL; }
+@keyframes ringL { 50% { background: #fde2e4; } }
+:root[data-theme="light"] #map { background: #dde3ea; }

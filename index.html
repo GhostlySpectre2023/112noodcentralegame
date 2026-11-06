@@ -12,7 +12,7 @@
     <div class="brand">📟 Meldkamer <b>112</b></div>
     <div class="stat" title="Dispatcher">👤 <span id="playerName">-</span></div>
     <div class="stat" title="Bemande centrale(s)">📍 <span id="regionName">-</span></div>
-    <div class="stat" title="Kloktijd in de centrale">🕒 <span id="clock">00:00</span></div>
+    <div class="stat clockbox" title="Kloktijd in de centrale"><span id="clock" class="bigclock">00:00:00</span><small id="dateInfo"></small></div>
     <div class="stat" title="Krediet">💶 <span id="credits">0</span></div>
     <div class="stat" title="Level / ervaring">⭐ Lvl <span id="level">1</span> <small>(<span id="xp">0</span> XP)</small></div>
     <div class="stat" title="Afgehandeld / mislukt">✅ <span id="done">0</span> · ❌ <span id="failed">0</span></div>
@@ -23,6 +23,7 @@
       <button data-speed="2">2x</button>
       <button data-speed="4">4x</button>
     </div>
+    <button id="btnTheme" class="ghost" title="Licht/donker thema">☀️</button>
     <button id="btnVoice" class="ghost" title="Stemmen van bellers en ploegen aan/uit">🗣️</button>
     <button id="btnSound" class="ghost" title="Geluid aan/uit">🔊</button>
     <button id="btnRegion" class="ghost">🏠 Menu</button>
@@ -39,8 +40,10 @@
       <section id="tab-calls" class="tab active">
         <h3>Binnenkomende oproepen</h3>
         <div id="incomingList" class="list"><p class="empty">Geen oproepen in de wachtrij.</p></div>
-        <h3>Actieve incidenten</h3>
+        <h3>Inzetten</h3>
         <div id="incidentList" class="list"><p class="empty">Geen actieve incidenten.</p></div>
+        <h3>112-lijn · logboek</h3>
+        <div id="logbook" class="logbook"></div>
       </section>
       <section id="tab-radio" class="tab">
         <div class="ptt-row">
@@ -51,6 +54,10 @@
         <div id="radioList" class="list"><p class="empty">Nog geen radioverkeer.</p></div>
       </section>
       <section id="tab-units" class="tab">
+        <div class="filters">
+          <input id="unitSearch" type="search" placeholder="Zoek naam…">
+          <select id="unitFilterType"></select>
+        </div>
         <div class="filters">
           <select id="unitFilterCity"></select>
           <select id="unitFilterStatus">
