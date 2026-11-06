@@ -533,15 +533,18 @@ function requestSupport(nbId) {
 
 // ---------- Inzet bewerken / alarmeren ----------
 let dispInc = null, dispSel = new Set(), dispProvOnly = false;
+const ED_SELECTS = [['#edMed', ['med', 'verkeer'], 'MED'], ['#edBrw', ['brand'], 'BRW'], ['#edPolSel', ['politie'], 'POL']];
+const edProtoValue = () => ED_SELECTS.map(([sel]) => $(sel).value).find(v => v) || '';
 function openDispatch(id) {
   const inc = S.incidents.find(i => i.id === id); if (!inc) return;
   dispInc = inc; dispSel = new Set();
   $('#dispTitle').textContent = inc.addr;
   $('#edPlace').textContent = `${inc.addr} (${PROVINCES.find(p => p.id === CITY_BY_ID[inc.cityId].prov).name})`;
-  const opts = [];
-  for (const [cat, label] of Object.entries(CATEGORIES)) opts.push(`<optgroup label="${label}">` + INCIDENT_TYPES.filter(t => t.cat === cat).map(t => `<option value="${t.id}">${t.icon} ${t.name}</option>`).join('') + '</optgroup>');
-  $('#edProto').innerHTML = opts.join('');
-  $('#edProto').value = inc.revealed ? inc.typeId : inc.protoId;
+  const cur = inc.revealed ? inc.typeId : inc.protoId;
+  for (const [sel, cats, pre] of ED_SELECTS) {
+    $(sel).innerHTML = '<option value=""></option>' + INCIDENT_TYPES.filter(t => cats.includes(t.cat)).map(t => `<option value="${t.id}">${pre}, ${t.name}</option>`).join('');
+    $(sel).value = cats.includes(TYPE_BY_ID[cur].cat) ? cur : '';
+  }
   $('#edNotes').value = inc.notes || '';
   $('#edFire').checked = false; $('#edPol').checked = false;
   renderDispatch();
@@ -565,8 +568,7 @@ function renderDispatch() {
   const { all } = incCounts(dispInc), tot = { ...all }; for (const [k, n] of Object.entries(selCounts)) tot[k] = (tot[k] || 0) + n;
   const cov = allocate(need, tot), miss = Object.entries(need).filter(([k, n]) => cov[k] < n).map(([k, n]) => `${n - cov[k]}x ${VEHICLE_TYPES[k].short}`);
   $('#dispNeed').className = 'proposal' + (miss.length ? '' : ' ok');
-  $('#dispNeed').innerHTML = `<b>Inzetvoorstel ${P.name}</b> <span class="muted">(norm ${P.norm} min)</span>: ` +
-    (miss.length ? `nog nodig ${miss.join(', ')}` : 'voldoende middelen toegewezen') + ' · ' + needChips(need, have);
+  $('#dispNeed').innerHTML = `<b>Inzetvoorstel ${P.name}:</b> <span class="${miss.length ? 'norm-bad' : 'muted'}">${miss.length ? `nog nodig: ${miss.join(', ')}` : 'voldoende middelen toegewezen'}</span>`;
   $('#edPrio').innerHTML = Object.entries(PRIORITIES).map(([k, p]) =>
     `<button data-prio="${k}" class="${dispInc.prio == k ? 'on' : ''}" style="${dispInc.prio == k ? `background:${p.color};border-color:${p.color}` : `border-color:${p.color}`}">${p.name}</button>`).join('');
   $('#fltAll').classList.toggle('on', !dispProvOnly); $('#fltProv').classList.toggle('on', dispProvOnly);
@@ -574,8 +576,8 @@ function renderDispatch() {
   const row = (u, d, eta, cls) => {
     const VT = VEHICLE_TYPES[u.type];
     return `<div class="unit-row ${cls}" data-id="${u.id}">
-      <span class="uname2"><span class="st st${grounded(u) && u.status === 1 ? 'x' : u.status}">${statusCode(u)}</span><span>${esc(u.name)}</span></span>
-      <span><span class="tag" style="background:${VT.color}">${VT.short}</span></span>
+      <span class="uname2"><span class="ubtn">${esc(u.name)} <span class="st st${grounded(u) && u.status === 1 ? 'x' : u.status}">${statusCode(u)}</span></span></span>
+      <span class="utype">${VT.short}</span>
       <span class="${eta <= P.norm ? 'norm-ok' : 'norm-bad'}">${Math.round(eta)} min</span>
       <span class="km">${(d / 1000).toFixed(1)} km</span></div>`;
   };
@@ -600,7 +602,7 @@ function quickAdd(type) { const u = nearestFree(type, dispSel); if (u) { dispSel
 function saveDispatchEdits() {
   const inc = dispInc; if (!inc) return;
   inc.notes = $('#edNotes').value.trim();
-  const proto = $('#edProto').value;
+  const proto = edProtoValue();
   if (proto && proto !== (inc.revealed ? inc.typeId : inc.protoId)) {
     inc.protoId = proto;
     if (!inc.arrived) inc.revealed = proto === inc.typeId;
@@ -885,9 +887,9 @@ function renderUI() {
     const open = S.expanded === inc.id;
     const chipsU = us.map(u => `<span class="uchip"><span class="st st${u.status}">${u.status}</span> ${esc(u.name)}</span>`).join('');
     return `<div class="card ${open ? 'open' : ''}" data-inc="${inc.id}"><div class="row"><span class="inc-no">${incNo(inc)}</span><span class="inc-time">${fmtTime(mins * 60)}</span></div>
-      <div class="title">${shown.icon} ${shown.name}, <span style="color:${P.color}">${P.name}</span></div>
+      <div class="title">${shown.name}, <span style="color:${P.color}">${P.name}</span></div>
       <div class="sub">${esc(inc.addr)} ${inc.arrived ? '' : `· <span class="${mins <= P.norm ? 'norm-ok' : 'norm-bad'}">${Math.floor(mins)}/${P.norm} min</span>`}</div>
-      <div class="chips">${chipsU || '<span class="chip miss">nog geen voertuigen</span>'}</div>
+      <div class="chips">${chipsU || '<span class="chip miss">geen voertuigen</span>'}</div>
       ${open ? `<div class="acts">
           <button class="btn small" data-act="edit">Inzet bewerken</button>
           <button class="btn small" data-act="map">Toon op kaart</button>
@@ -900,7 +902,7 @@ function renderUI() {
           <dt>Nodig</dt><dd>${needChips(shownNeed(inc), incStatus(inc))}</dd>
           <dt>Notities</dt><dd>${esc(inc.notes || '—')}</dd>
           <dt>Melding</dt><dd class="quote">${esc(inc.text || '—')}</dd>
-        </dl>` : `<div class="chips">${needChips(shownNeed(inc), incStatus(inc))}</div>`}
+        </dl>` : ''}
       ${inc.state === 'working' ? `<div class="bar"><div style="width:${pct}%"></div></div>` : `<div class="bar timer" title="Resterende tijd"><div style="width:${pat}%;background:${pat < 30 ? '#ef4444' : ''}"></div></div>`}
     </div>`;
   }).join('') : '<p class="empty">Geen lopende inzetten.</p>';
@@ -1134,7 +1136,7 @@ $$('#dispatchModal [data-quick]').forEach(b => b.onclick = () => quickAdd(b.data
 $('#edFire').onchange = e => { if (e.target.checked) quickAdd('AP'); };
 $('#edPol').onchange = e => { if (e.target.checked) quickAdd('POL'); };
 $('#edPrio').onclick = e => { const b = e.target.closest('[data-prio]'); if (b && dispInc) { dispInc.prio = +b.dataset.prio; renderDispatch(); dirty = true; } };
-$('#edProto').onchange = () => { saveDispatchEdits(); renderDispatch(); };
+$$('.edp').forEach(el => el.onchange = () => { if (el.value) $$('.edp').forEach(o => { if (o !== el) o.value = ''; }); saveDispatchEdits(); renderDispatch(); });
 $('#fltAll').onclick = () => { dispProvOnly = false; renderDispatch(); };
 $('#fltProv').onclick = () => { dispProvOnly = true; renderDispatch(); };
 $('#dispCancel').onclick = $('#dispX').onclick = closeDispatch;

@@ -255,39 +255,47 @@
       <div class="call-body ed">
         <div class="ed-grid">
           <span class="ed-l">Inzetplaats</span><span id="edPlace" class="ed-v"></span>
-          <span class="ed-l">Protocol</span><select id="edProto"></select>
-          <span class="ed-l">Prioriteit</span><div id="edPrio" class="prio-row"></div>
-          <span class="ed-l">Notities</span><textarea id="edNotes" rows="2" placeholder="Notities bij deze inzet"></textarea>
+          <span class="ed-l">MED:</span><select id="edMed" class="edp"></select>
+          <span class="ed-l">BRW:</span><select id="edBrw" class="edp"></select>
+          <span class="ed-l">POLITIE:</span><select id="edPolSel" class="edp"></select>
+          <span class="ed-l">Prioriteit:</span><div id="edPrio" class="prio-row"></div>
         </div>
         <div id="dispNeed" class="proposal"></div>
-        <div class="ed-quick">
-          <span class="muted small">Snelkeuze:</span>
-          <button id="dispAuto" class="btn small">⚡ Voorstel</button>
-          <button class="btn small q" data-quick="AMB">ZW</button>
-          <button class="btn small q" data-quick="PIT">PIT</button>
-          <button class="btn small q" data-quick="MUG">MUG</button>
-          <button class="btn small q" data-quick="AP">AP</button>
-          <button class="btn small q" data-quick="POL">POL</button>
+        <div class="ed-grid">
+          <span class="ed-l">Notities:</span><textarea id="edNotes" rows="2" placeholder="Notities bij deze inzet"></textarea>
         </div>
-        <div class="ed-checks">
-          <label class="chk"><input type="checkbox" id="edFire"> Brandweer verwittigen</label>
-          <label class="chk"><input type="checkbox" id="edPol"> Politie verwittigen</label>
-          <label class="chk"><input type="checkbox" id="dispOnlyNeeded"> Enkel benodigde types</label>
+        <div class="ed-row2">
+          <div class="ed-checks">
+            <label class="chk"><input type="checkbox" id="edFire"> Brandweer verwittigen</label>
+            <label class="chk"><input type="checkbox" id="edPol"> Politie verwittigen</label>
+            <label class="chk"><input type="checkbox" id="dispOnlyNeeded"> Enkel benodigde types</label>
+          </div>
+          <div class="ed-quick">
+            <span class="qlbl">Snelkeuze per voertuigtype:</span>
+            <div class="qbtns">
+              <button id="dispAuto" class="btn small">Voorstel</button>
+              <button class="btn small q" data-quick="AMB" style="color:#2563eb">ZW</button>
+              <button class="btn small q" data-quick="PIT" style="color:#16a34a">PIT</button>
+              <button class="btn small q" data-quick="MUG" style="color:#dc2626">MUG</button>
+              <button class="btn small q" data-quick="AP">AP</button>
+              <button class="btn small q" data-quick="POL">POL</button>
+            </div>
+          </div>
         </div>
         <div class="ed-listhead">
-          <b>Voertuigen</b>
+          <b>Toegewezen voertuigen</b>
           <div class="seg"><button id="fltAll" class="on">Alle</button><button id="fltProv">Eigen provincie</button></div>
         </div>
         <div class="unit-head"><span>Voertuig</span><span>Type</span><span>Rijtijd</span><span>Afstand</span></div>
         <div id="dispUnits" class="list unit-table"></div>
       </div>
       <div class="modal-foot">
-        <button id="dispCancelInc" class="btn danger">Inzet annuleren</button>
-        <span class="spacer"></span>
-        <button id="dispCancel" class="btn ghost">Sluiten</button>
-        <button id="dispSave" class="btn">Opslaan</button>
-        <button id="dispSendSupport" class="btn">Alarmeren + ondersteuning</button>
         <button id="dispSend" class="btn primary">Toewijzen &amp; alarmeren (<span id="dispCount">0</span>)</button>
+        <button id="dispSave" class="btn">Alleen toewijzen</button>
+        <button id="dispSendSupport" class="btn">Toewijzen, alarmeren &amp; ondersteuning</button>
+        <span class="spacer"></span>
+        <button id="dispCancel" class="btn ghost hidden">Sluiten</button>
+        <button id="dispCancelInc" class="btn danger">Inzet annuleren</button>
       </div>
     </div>
   </div>
