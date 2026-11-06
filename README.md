@@ -3,6 +3,9 @@
 Een browsergame waarin je de 112-noodcentrale bemant: oproepen beantwoorden, incidenten aanmaken en de juiste hulpdiensten alarmeren op een echte kaart van België.
 
 ## Spelen
+**Online spelen:** https://ghostlyspectre2023.github.io/112noodcentralegame/
+
+Lokaal:
 Open `index.html` via een lokale webserver, bv.:
 
 ```bash
