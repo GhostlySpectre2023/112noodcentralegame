@@ -511,3 +511,45 @@ textarea { font: inherit; background: var(--panel2); color: var(--text); border:
 .settings { display: flex; flex-direction: column; gap: 10px; }
 .settings label input[type=password], .settings label select { display: block; width: 100%; margin-top: 4px; }
 .set-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* ===== startpagina: compacte indeling ===== */
+#home { font-size: 14px; }
+#home .wrap { max-width: 1000px; }
+.home-head { padding-block: 12px; }
+.brand-lg svg { width: 36px; height: 36px; }
+.brand-lg b { font-size: 20px; }
+.brand-lg small { font-size: 12px; }
+.navbtn { padding: 6px 10px; font-size: 13px; }
+.home-main { gap: 16px; padding-block: 8px 32px; }
+.eyebrow { margin-top: 6px; font-size: 11px; }
+.hero { font-size: clamp(26px, 3.4vw, 34px); line-height: 1.15; }
+.lead { font-size: 15px; }
+.lead.small { font-size: 14px; }
+.home-left { gap: 14px; }
+.stat-tile { padding: 10px 14px; border-radius: 6px; }
+.stat-tile b { font-size: 20px; }
+.stat-tile span { font-size: 12px; }
+.box { padding: 16px 18px; border-radius: 6px; }
+.box h2 { font-size: 20px; margin-bottom: 10px; }
+.home-right h2 { font-size: 22px !important; }
+.home-right label, .home-right .lbl { font-size: 13px; font-weight: 700; }
+.home-right input, .home-right select { padding: 5px 8px; font-size: 13px; border-radius: 3px; }
+.lbl { margin: 12px 0 6px; }
+#centraleGrid { gap: 6px; }
+.centrale { padding: 7px 10px; border-radius: 4px; }
+.centrale b { font-size: 14px; }
+.centrale small { font-size: 11px; }
+#refine summary, .start-foot, label.chk.consent { font-size: 12px; }
+.btn.block { padding: 9px; font-size: 14px; border-radius: 4px; }
+h2.sec { font-size: 20px; margin: 18px 0 6px; }
+.steps { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; gap: 10px; max-width: 640px; }
+.steps li { padding: 12px 14px; border-radius: 4px; }
+.steps li b { font-size: 14px; }
+.steps li span { font-size: 12px; }
+#hoe, #faq, #praten, .home-foot { max-width: 640px !important; }
+.home-info p { margin: 0; font-size: 13px; }
+.faq { padding: 9px 14px; border-radius: 4px; margin-bottom: 6px; }
+.faq summary { font-size: 14px; }
+.faq p { font-size: 13px; }
+.home-foot { font-size: 12px; }
+@media (max-width: 760px) { .steps { grid-template-columns: 1fr !important; } }
