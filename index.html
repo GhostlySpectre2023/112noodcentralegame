@@ -137,11 +137,13 @@
           <button data-speed="1" class="active">1×</button>
           <button data-speed="2">2×</button>
           <button data-speed="4">4×</button>
+          <button data-speed="8">8×</button>
         </div>
         <button id="btnTheme" class="iconbtn" title="Licht/donker thema">☀️</button>
         <button id="btnVoice" class="iconbtn" title="Stemmen aan/uit">🗣️</button>
         <button id="btnSound" class="iconbtn" title="Geluid aan/uit">🔊</button>
-        <button id="btnRegion" class="iconbtn" title="Terug naar het menu">☰</button>
+        <button id="btnEndShift" class="iconbtn" title="Dienst afsluiten">⏻</button>
+        <button id="btnRegion" class="iconbtn" title="Terug naar het menu (dienst pauzeert)">☰</button>
       </div>
     </header>
 
@@ -328,6 +330,21 @@
     </div>
   </div>
 
+  <!-- Dienst afsluiten -->
+  <div id="endModal" class="modal hidden">
+    <div class="modal-box">
+      <div class="call-head">Dienst afsluiten <button class="x" id="endX" aria-label="Sluiten">✕</button></div>
+      <div class="call-body">
+        <dl id="endSummary" class="dl end-dl"></dl>
+        <p class="muted small">Lopende inzetten en oproepen worden overgedragen aan de volgende ploeg. Je krediet, level en gekochte voertuigen blijven bewaard.</p>
+      </div>
+      <div class="modal-foot">
+        <button id="endConfirm" class="btn primary">Dienst afsluiten</button>
+        <button id="endCancel" class="btn">Verder spelen</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Post kopen -->
   <div id="buildModal" class="modal hidden">
     <div class="modal-box">
@@ -346,6 +363,7 @@
 
   <script src="lib/leaflet/leaflet.js"></script>
   <script src="js/data.js"></script>
+  <script src="js/vehicles.js"></script>
   <script src="js/game.js"></script>
 </body>
 </html>

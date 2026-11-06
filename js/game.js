@@ -4,9 +4,20 @@
    ========================================================== */
 
 const SAVE_KEY = 'meldkamer112_save_v1';
-const DRIVE_COMPRESS = 3;          // 1 spelseconde = 3 echte seconden (klok, rijtijden)
+const DRIVE_COMPRESS = 1;          // op 1× loopt alles in echte tijd
 const CALL_TIMEOUT = 75;           // s voor een oproep die niet opgenomen wordt
-const HOSPITAL_TIME = 20;          // s overdracht in ziekenhuis
+const HOSPITAL_TIME = 600;         // s overdracht in ziekenhuis (10 min)
+const SCENE_FACTOR = 5;            // tijd ter plaatse = protocolduur x 5 (enkele minuten)
+const sceneDur = inc => TYPE_BY_ID[inc.typeId].dur * SCENE_FACTOR;
+// uitruktijd in seconden: van alarm tot vertrek
+function turnoutSec(u) {
+  if (u.status === 5) return 0;
+  const VT = VEHICLE_TYPES[u.type];
+  if (VT.air) return 300;
+  if (VT.service === 'pol') return 30;
+  if (VT.service === 'fire') return isNight() ? 300 : 150;
+  return 60;
+}
 const TRANSPORT_DECIDE = 60;       // s om een ziekenhuis te kiezen
 const NEIGHBOR_PRICE = 600;        // prijs per eenheid van een buurcentrale
 const SPEC_NEED = { hart: 'cathlab', borst: 'cathlab', beroerte: 'stroke', valhoogte: 'trauma', vkz: 'trauma' };
@@ -165,7 +176,7 @@ async function getRoute(a, b) {
       }
     } catch (e) { osrmOk = false; setTimeout(() => { osrmOk = true; }, 60000); }
   }
-  if (!res) { const d = distM(a, b) * 1.35; res = { pts: [a, b], dist: d, dur: d / 12.5 }; }
+  if (!res) { const d = distM(a, b) * 1.35, v = d < 3000 ? 8.5 : d < 10000 ? 12.5 : 18; res = { pts: [a, b], dist: d, dur: d / v }; }
   routeCache.set(key, res);
   return res;
 }
@@ -208,7 +219,7 @@ function buildWorld() {
   const pts = S.cities.map(id => [CITY_BY_ID[id].lat, CITY_BY_ID[id].lng]);
   if (pts.length === 1) map.setView(pts[0], 13);
   else if (pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.15));
-  S.nextSpawn = S.time + 4;
+  S.nextSpawn = S.time + 25;
   renderAll();
 }
 function addStation(st, baseFleet) {
@@ -239,8 +250,7 @@ function addUnit(st, type, temp = false) {
 function unitIcon(u) {
   const VT = VEHICLE_TYPES[u.type];
   const label = u.status !== 1 ? `<span class="mk-label">${esc(u.name)}</span>` : '';
-  const ico = { med: '🚑', fire: '🚒', pol: '🚓' }[VT.service] || '🚑';
-  return L.divIcon({ className: '', html: `<div class="mk-unit-wrap"><div class="mk-veh ${u.status === 2 ? 'blink' : ''}" style="border-color:${VT.color}">${VT.air ? '🚁' : ico}</div>${label}</div>`, iconSize: [30, 22], iconAnchor: [15, 11] });
+  return L.divIcon({ className: '', html: `<div class="mk-unit-wrap"><img class="mk-vimg ${u.status === 2 ? 'blink' : ''}" src="${vehicleSVG(u.type)}" alt="${VT.short}">${label}</div>`, iconSize: [44, 21], iconAnchor: [22, 11] });
 }
 const STATUS_SHORT = { 1: 'vrij in post', 2: 'onderweg', 3: 'ter plaatse', 4: 'transport', 5: 'terug naar post' };
 function setStatus(u, s) {
@@ -308,7 +318,27 @@ function hourFactor() {
   if (h < 18) return 1.0;
   return we ? 1.4 : 1.2;
 }
-function spawnCall() {
+// echt adres opzoeken voor een punt op de kaart (OpenStreetMap / Nominatim)
+async function reverseGeocode(lat, lng) {
+  try {
+    const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 5000);
+    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat.toFixed(6)}&lon=${lng.toFixed(6)}&zoom=18&addressdetails=1&accept-language=nl`, { signal: ctrl.signal });
+    clearTimeout(to);
+    const j = await r.json(), a = j.address || {};
+    if (a.country_code !== 'be' || !a.road) return null;
+    return { lat: +j.lat, lng: +j.lon, road: a.road, house: a.house_number || '', city: a.city || a.town || a.village || a.municipality || '' };
+  } catch (e) { return null; }
+}
+let geoBusy = Promise.resolve();
+function geocodeQueued(lat, lng) { // maximaal één aanvraag per seconde
+  const p = geoBusy.then(() => reverseGeocode(lat, lng));
+  geoBusy = p.then(() => new Promise(res => setTimeout(res, 1100)));
+  return p;
+}
+const LOC_PHRASE = { werk: 'Ik ben hier op het werk. ', school: 'We zijn op school. ', wzc: 'Ik bel vanuit het woonzorgcentrum. ', sport: 'We zijn op de sportclub. ',
+  station: 'Ik sta aan het station. ', winkel: 'Ik ben in de supermarkt. ', cafe: 'Ik zit op café. ', park: 'We zijn in het park. ',
+  snelweg: 'Het is op de snelweg. ', kruispunt: 'Het is op het kruispunt. ', parking: 'Het is op de parking. ' };
+async function spawnCall() {
   if (!S.cities.length) return;
   const types = availableTypes(); if (!types.length) return;
   const wt = t => t.weight * (S.weather.boost[t.id] || 1);
@@ -319,19 +349,22 @@ function spawnCall() {
   let rc = Math.random() * cwt, city = CITY_BY_ID[S.cities[0]];
   for (let i = 0; i < S.cities.length; i++) { rc -= cw[i]; if (rc <= 0) { city = CITY_BY_ID[S.cities[i]]; break; } }
   const spread = 0.8 + city.size * 0.7;
-  const [lat, lng] = offsetKm(city.lat, city.lng, gauss() * spread, gauss() * spread);
+  let [lat, lng] = offsetKm(city.lat, city.lng, gauss() * spread, gauss() * spread);
+  const geo = await geocodeQueued(lat, lng);
+  if (!S.running) return;
   const V = VARIANT_SETS[type.cat], sev = pick(SEVERITIES), pat = pick(V.pat), loc = pick(V.loc), caller = pick(V.call);
   const truePrio = Math.min(3, Math.max(1, type.prio + sev.delta));
-  const street = `${pick(STREETS)} ${Math.floor(rnd(1, 180))}`, cname = city.name.split(' (')[0];
-  const place = loc.pre ? `${loc.pre}${pick(LOC_NAMES)}, ${street}` : loc.id === 'snelweg' ? `E${pick([17, 40, 403, 34, 19, 313])} ter hoogte van ${cname}` : street;
+  let addr;
+  if (geo) { lat = geo.lat; lng = geo.lng; addr = `${geo.road}${geo.house ? ' ' + geo.house : ''}, ${geo.city || city.name.split(' (')[0]}`; }
+  else addr = `${pick(STREETS)} ${Math.floor(rnd(1, 180))}, ${city.name.split(' (')[0]}`;
   const facts = { ...type.facts };
   if (pat.txt) facts.personen = pat.txt;
   if (sev.id === 'ernstig' && facts.bewust === 'ja') facts.bewust = 'half';
   if (sev.id === 'licht' && facts.adem === 'moeilijk') facts.adem = 'ja';
   const call = {
     id: S.nextId++, typeId: type.id, lat, lng, cityId: city.id, created: S.time, answered: false, asked: [], convo: [],
-    addr: `${place}, ${cname}`,
-    text: `${caller.pre}${pick(type.calls)}${sev.add ? ' ' + sev.add : ''}`, fake: Math.random() < 0.06, voiceSeed: Math.floor(Math.random() * 100),
+    addr,
+    text: `${caller.pre}${LOC_PHRASE[loc.id] || ''}${pick(type.calls)}${sev.add ? ' ' + sev.add : ''}`, fake: Math.random() < 0.06, voiceSeed: Math.floor(Math.random() * 100),
     protoId: '', prio: 0, truePrio, trueNeed: needForVariant(type, truePrio), facts, sev: sev.id,
   };
   if (call.fake) call.text = pick(['Hallo? Ja… euh, sorry, verkeerd nummer.', 'Hihi… *gegiechel op de achtergrond*', 'Is dit de pizzeria? Ik wil iets bestellen.', 'Ik wou gewoon eens testen of dit nummer werkt.']);
@@ -431,7 +464,7 @@ function createIncident(c) {
   const trueNeed = c.trueNeed || T.need;
   const nUnits = Object.values(trueNeed).reduce((a, b) => a + b, 0);
   const inc = { no: ++S.incNo, id: c.id, typeId: T.id, protoId: P.id, prio: +c.prio, lat: c.lat, lng: c.lng, addr: c.addr, cityId: c.cityId,
-    created: S.time, patience: 240 + nUnits * 30, waited: 0, progress: 0, state: 'open', revealed: c.protoId === c.typeId, arrived: false,
+    created: S.time, patience: PRIORITIES[c.truePrio || T.prio].norm * 60 * 2 + nUnits * 60, waited: 0, progress: 0, state: 'open', revealed: c.protoId === c.typeId, arrived: false,
     text: c.text || '', notes: c.notes || '', trueNeed, truePrio: c.truePrio || T.prio };
   { const d = currentDate(); inc.rit = `${String(d.getFullYear()).slice(2)}${p2(d.getMonth() + 1)}${p2(d.getDate())}${String(inc.no).padStart(5, '0')}`; }
   inc.marker = L.marker([inc.lat, inc.lng], {
@@ -569,7 +602,12 @@ function openDispatch(id) {
   show('#dispatchModal');
 }
 function closeDispatch() { hide('#dispatchModal'); dispInc = null; }
-function etaMin(u, d) { if (VEHICLE_TYPES[u.type].air) return d / 55 / 60 + 3; return d * 1.35 / 12.5 / VEHICLE_TYPES[u.type].speed / S.weather.speed / 60 / (dispInc && dispInc.prio < 3 ? 1.25 : 1); }
+function etaMin(u, d) {
+  const t0 = turnoutSec(u) / 60;
+  if (VEHICLE_TYPES[u.type].air) return t0 + d / 55 / 60 + 3;
+  const dd = d * 1.35, v = dd < 3000 ? 8.5 : dd < 10000 ? 12.5 : 18;
+  return t0 + dd / v / VEHICLE_TYPES[u.type].speed / S.weather.speed / 60 / (dispInc && dispInc.prio < 3 ? 1.2 : 1);
+}
 function dispCandidates() {
   const need = shownNeed(dispInc), only = $('#dispOnlyNeeded').checked, prov = CITY_BY_ID[dispInc.cityId].prov;
   return S.units
@@ -658,15 +696,15 @@ function cancelIncident(inc) {
 }
 function dispatchUnit(u, inc) {
   u.incidentId = inc.id; setStatus(u, 2); u.move = null;
-  driveTo(u, [inc.lat, inc.lng], inc.prio < 3 ? 1.25 : 1, () => { if (u.incidentId === inc.id) arriveOnScene(u, inc); });
+  driveTo(u, [inc.lat, inc.lng], inc.prio < 3 ? 1.2 : 1, () => { if (u.incidentId === inc.id) arriveOnScene(u, inc); }, turnoutSec(u));
 }
-async function driveTo(u, dest, urgent, onArrive) {
+async function driveTo(u, dest, urgent, onArrive, turnout = 0) {
   const token = (u.moveToken = (u.moveToken || 0) + 1);
   const air = VEHICLE_TYPES[u.type].air;
   const r = air ? { pts: [[u.lat, u.lng], dest], dur: distM([u.lat, u.lng], dest) / 55 + 180 } : await getRoute([u.lat, u.lng], dest);
   if (u.moveToken !== token) return;
   const dur = Math.max(4, air ? r.dur / DRIVE_COMPRESS : r.dur / VEHICLE_TYPES[u.type].speed / S.weather.speed / DRIVE_COMPRESS / urgent);
-  u.move = { pts: r.pts, cum: prepRoute(r.pts), dur, t: 0, onArrive };
+  u.move = { pts: r.pts, cum: prepRoute(r.pts), dur, t: -turnout, onArrive };
   if (u.line) layers.routes.removeLayer(u.line);
   u.line = L.polyline(r.pts, { color: VEHICLE_TYPES[u.type].color, weight: 3, opacity: 0.55, dashArray: urgent > 1 ? null : '4 6' }).addTo(layers.routes);
 }
@@ -789,10 +827,10 @@ function tick(now) {
   if (S.running && dt > 0) {
     S.time += dt;
     if (S.time >= S.nextSpawn) {
-      const cap = 4 + level() * 2 + Math.floor(Math.sqrt(S.cities.length));
+      const cap = 2 + level() + Math.floor(Math.sqrt(S.cities.length) / 2);
       if (S.calls.length + S.incidents.length < cap) spawnCall();
-      const base = 38 / Math.sqrt(Math.max(1, S.cities.length)) / (1 + level() * 0.08) / hourFactor();
-      S.nextSpawn = S.time + Math.max(7, base * rnd(0.6, 1.4));
+      const base = 200 / (1 + 0.12 * S.cities.length) / (1 + level() * 0.05) / hourFactor();
+      S.nextSpawn = S.time + Math.max(40, base * rnd(0.5, 1.5));
     }
     if (S.time >= S.nextWeather) setWeather();
     // ziekenhuisbezetting schommelt
@@ -831,7 +869,7 @@ function tick(now) {
       if (needsMet(inc)) {
         if (inc.state !== 'working') { inc.state = 'working'; inc.marker.getElement()?.querySelector('.mk')?.classList.add('working'); }
         inc.progress += dt;
-        if (inc.progress >= T.dur) { completeIncident(inc); continue; }
+        if (inc.progress >= sceneDur(inc)) { completeIncident(inc); continue; }
       } else {
         if (inc.state === 'working') { inc.state = 'open'; inc.marker.getElement()?.querySelector('.mk')?.classList.remove('working'); }
         inc.waited += anyOnScene ? dt * 0.35 : dt;
@@ -855,16 +893,19 @@ function setWeather(initial) {
 }
 
 // ---------- Overdracht vorige ploeg ----------
-function shiftHandover() {
+async function shiftHandover() {
   const types = availableTypes().filter(t => t.prio > 1 || t.cat === 'med');
   const n = Math.min(3, 1 + Math.floor(Math.random() * 3));
   let made = 0;
   for (let i = 0; i < n && types.length; i++) {
     const T = pick(types), cid = pick(S.cities), c = CITY_BY_ID[cid];
-    const [lat, lng] = offsetKm(c.lat, c.lng, gauss() * c.size, gauss() * c.size);
+    let [lat, lng] = offsetKm(c.lat, c.lng, gauss() * c.size, gauss() * c.size);
+    const geo = await geocodeQueued(lat, lng);
+    let addr = `${pick(STREETS)} ${Math.floor(rnd(1, 180))}, ${c.name.split(' (')[0]}`;
+    if (geo) { lat = geo.lat; lng = geo.lng; addr = `${geo.road}${geo.house ? ' ' + geo.house : ''}, ${geo.city || c.name.split(' (')[0]}`; }
     const inc = createIncident({ id: S.nextId++, typeId: T.id, protoId: T.id, prio: T.prio, lat, lng, cityId: cid, silent: true,
-      addr: `${pick(STREETS)} ${Math.floor(rnd(1, 180))}, ${c.name.split(' (')[0]}`, text: pick(T.calls), notes: 'Overgenomen van de vorige ploeg.' });
-    inc.created -= rnd(60, 160);
+      addr, text: pick(T.calls), notes: 'Overgenomen van de vorige ploeg.' });
+    inc.created -= rnd(180, 600);
     dispInc = inc; autoSuggest();
     for (const id of dispSel) { const u = S.units.find(x => x.id === id); if (u) dispatchUnit(u, inc); }
     dispInc = null; dispSel = new Set(); made++;
@@ -894,7 +935,7 @@ function renderUI() {
     `<button class="btn small inprog" data-call="${c.id}">In gesprek ${fmtTime(S.time - c.answeredAt)}</button>`).join('');
   $('#incidentList').innerHTML = S.incidents.length ? S.incidents.map(inc => {
     const T = TYPE_BY_ID[inc.typeId], P = PRIORITIES[inc.prio], shown = TYPE_BY_ID[inc.revealed ? inc.typeId : inc.protoId];
-    const pct = inc.state === 'working' ? inc.progress / T.dur * 100 : 0;
+    const pct = inc.state === 'working' ? inc.progress / sceneDur(inc) * 100 : 0;
     const pat = Math.max(0, 1 - inc.waited / inc.patience) * 100;
     const mins = realMin(S.time - inc.created);
     const us = S.units.filter(u => u.incidentId === inc.id);
@@ -951,7 +992,7 @@ function renderUnits() {
     .sort((a, b) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name));
   $('#unitList').innerHTML = list.slice(0, 300).map(u => {
     const VT = VEHICLE_TYPES[u.type];
-    return `<div class="urow ${S.selUnit === u.id ? 'sel' : ''}" data-unit="${u.id}" title="${esc(VT.name)}"><span class="st st${(u.offDuty || grounded(u)) && u.status === 1 ? 'x' : u.status}">${statusCode(u)}</span><span class="dot" style="background:${VT.color}"></span><span class="uname">${esc(u.name)}</span>
+    return `<div class="urow ${S.selUnit === u.id ? 'sel' : ''}" data-unit="${u.id}" title="${esc(VT.name)}"><span class="st st${(u.offDuty || grounded(u)) && u.status === 1 ? 'x' : u.status}">${statusCode(u)}</span><img class="uimg" src="${vehicleSVG(u.type)}" alt=""><span class="uname">${esc(u.name)}</span>
       <span class="usub">${u.awaitHosp ? 'Wacht op ziekenhuiskeuze' : grounded(u) && u.status === 1 ? 'Niet inzetbaar (nacht/weer)' : STATUS_TXT[u.status]} · ${esc(stationOf(u)?.name || '')}</span></div>`;
   }).join('') + (list.length > 300 ? `<p class="empty">… en nog ${list.length - 300} voertuigen (gebruik de filter)</p>` : '') || '<p class="empty">Geen voertuigen.</p>';
   renderUnitDetail();
@@ -1174,6 +1215,35 @@ $('#unitDetail').onchange = e => {
   u.marker.setIcon(unitIcon(u)); renderUnits(); dirty = true;
 };
 $('#radioStatusRows').onchange = () => renderRadio();
+function openEndShift() {
+  const st = S.shiftStart || {}, mins = Math.round(S.time / 60);
+  const done = S.done - (st.done || 0), failed = S.failed - (st.failed || 0);
+  const nh = S.normHit - (st.normHit || 0), nt = S.normTotal - (st.normTotal || 0);
+  $('#endSummary').innerHTML = `
+    <dt>Centrale</dt><dd>${esc(regionLabel())}</dd>
+    <dt>Duur</dt><dd>${Math.floor(mins / 60)} u ${mins % 60} min</dd>
+    <dt>Afgehandeld</dt><dd>${done}</dd>
+    <dt>Mislukt</dt><dd>${failed}</dd>
+    <dt>Aanrijnorm</dt><dd>${nt ? Math.round(nh / nt * 100) + '% (' + nh + '/' + nt + ')' : '-'}</dd>
+    <dt>Krediet</dt><dd>${S.credits - (st.credits || 0) >= 0 ? '+' : ''}€${(S.credits - (st.credits || 0)).toLocaleString('nl-BE')}</dd>
+    <dt>Ervaring</dt><dd>${S.xp - (st.xp || 0) >= 0 ? '+' : ''}${S.xp - (st.xp || 0)} XP</dd>
+    <dt>Lopend</dt><dd>${S.incidents.length} inzetten, ${S.calls.length} oproepen</dd>`;
+  S.running = false; show('#endModal');
+}
+function endShift() {
+  hide('#endModal');
+  logbook('Dienst afgesloten.');
+  S.running = false; S.time = 0; S.calls = []; S.incidents = []; S.radio = []; S.expanded = null; currentCall = null;
+  for (const l of Object.values(layers)) l.clearLayers();
+  S.units = []; S.stations = [];
+  ['#callModal', '#dispatchModal', '#hospModal', '#supportModal'].forEach(hide);
+  if (window.speechSynthesis) speechSynthesis.cancel();
+  save(); openStart();
+  log('Dienst afgesloten. Tot de volgende keer!', '#22c55e');
+}
+$('#btnEndShift').onclick = openEndShift;
+$('#endConfirm').onclick = endShift;
+$('#endCancel').onclick = $('#endX').onclick = () => { hide('#endModal'); S.running = true; };
 $('#btnNextCall').onclick = () => { const c = S.calls.find(x => !x.answered); if (c) openCall(c.id); };
 const stClick = e => {
   const b = e.target.closest('[data-buy]'); if (b) { const [s, t] = b.dataset.buy.split('|'); buyVehicle(s, t); return; }
@@ -1251,6 +1321,7 @@ $('#startGame').onclick = () => {
   S.incNo = 100 + Math.floor(Math.random() * 60); S.logbook = []; setWeather(true);
   ['#callModal', '#dispatchModal', '#hospModal', '#supportModal'].forEach(hide); S.expanded = null;
   showGame(); save(); buildWorld(); S.running = true;
+  S.shiftStart = { done: S.done, failed: S.failed, credits: S.credits, xp: S.xp, normHit: S.normHit, normTotal: S.normTotal };
   shiftHandover();
   log(`🟢 Dienst gestart${S.player ? ` voor <b>${esc(S.player)}</b>` : ''} in <b>${esc(regionLabel())}</b>. Succes!`, '#22c55e');
   radio('Meldkamer', `Dienst gestart om ${clockStr()}. Alle ploegen: ${regionLabel()} is bemand.`, { me: true });
