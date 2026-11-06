@@ -154,9 +154,12 @@
         <div class="panel grow">
           <div class="phead">112-lijn <span id="callBadge" class="count alert hidden">0</span>
             <button id="btnNeighbor" class="phead-btn" title="Schakel de oudste wachtende oproep door naar een buurcentrale">📞 Buurcentrale</button></div>
-          <div class="pbody">
-            <div id="incomingList" class="list"></div>
+          <div class="pbody line-grid">
             <div id="logbook" class="logbook"></div>
+            <div class="line-side">
+              <button id="btnNextCall" class="btn nextcall" disabled>Nieuwe oproep (0)</button>
+              <div id="incomingList" class="list"></div>
+            </div>
           </div>
         </div>
       </section>
@@ -182,6 +185,7 @@
           <div class="pbody">
             <div class="ptt-row">
               <button id="btnPTT" class="ptt" title="Houd ingedrukt (of de T-toets) en spreek">🎙️ Push-to-talk (T)</button>
+              <label class="chk small"><input type="checkbox" id="radioStatusRows" checked> Statusmeldingen</label>
             </div>
             <p class="muted small" id="pttHint">Houd de knop of de <b>T</b>-toets ingedrukt en zeg bv. <i>“begrepen”</i>, of bij een transportvraag de naam van het ziekenhuis.</p>
             <div id="radioList" class="list"></div>
@@ -211,7 +215,7 @@
             </select>
           </div>
           <div id="unitList" class="ulist"></div>
-          <p class="muted small pad">Klik op een voertuig om het op de kaart te tonen.</p>
+          <div id="unitDetail" class="udetail"><p class="muted small">Klik op een voertuig voor details. Dubbelklik toont het op de kaart.</p></div>
         </div>
         <div id="tab-stations" class="tab">
           <button id="btnBuild" class="btn primary block">➕ Nieuwe post bouwen</button>
