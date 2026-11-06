@@ -467,7 +467,8 @@ async function reverseGeocode(lat, lng) {
     clearTimeout(to);
     const j = await r.json(), a = j.address || {};
     if (a.country_code !== 'be' || !a.road) return null;
-    return { lat: +j.lat, lng: +j.lon, road: a.road, house: a.house_number || '', city: a.city || a.town || a.village || a.municipality || '' };
+    return { lat: +j.lat, lng: +j.lon, road: a.road, house: a.house_number || '', city: a.city || a.town || a.village || a.municipality || '',
+      cat: j.category || j.class || '', kind: j.type || '', addresstype: j.addresstype || '', name: j.name || '' };
   } catch (e) { return null; }
 }
 let geoBusy = Promise.resolve();
@@ -478,7 +479,25 @@ function geocodeQueued(lat, lng) { // maximaal één aanvraag per seconde
 }
 const LOC_PHRASE = { werk: 'Ik ben hier op het werk. ', school: 'We zijn op school. ', wzc: 'Ik bel vanuit het woonzorgcentrum. ', sport: 'We zijn op de sportclub. ',
   station: 'Ik sta aan het station. ', winkel: 'Ik ben in de supermarkt. ', cafe: 'Ik zit op café. ', park: 'We zijn in het park. ',
-  snelweg: 'Het is op de snelweg. ', kruispunt: 'Het is op het kruispunt. ', parking: 'Het is op de parking. ' };
+  snelweg: 'Het is op de snelweg. ', kruispunt: 'Het is op het kruispunt. ', parking: 'Het is op de parking. ',
+  veld: 'We zijn hier buiten aan een veld, langs de weg. ', straat: 'Het is hier op straat. ', thuis: '' };
+// wat is er op deze plek? (op basis van OpenStreetMap)
+function locFromGeo(g) {
+  const k = g.kind, c = g.cat;
+  if (['school', 'kindergarten', 'college', 'university'].includes(k)) return 'school';
+  if (['nursing_home', 'social_facility', 'hospital', 'clinic'].includes(k)) return 'wzc';
+  if (['supermarket', 'mall', 'department_store', 'convenience'].includes(k) || c === 'shop') return 'winkel';
+  if (['pub', 'bar', 'cafe', 'restaurant', 'fast_food'].includes(k)) return 'cafe';
+  if (['station', 'halt', 'platform'].includes(k) && (c === 'railway' || c === 'public_transport')) return 'station';
+  if (['park', 'garden', 'playground', 'nature_reserve'].includes(k)) return 'park';
+  if (['sports_centre', 'pitch', 'stadium', 'swimming_pool', 'fitness_centre'].includes(k)) return 'sport';
+  if (['industrial', 'commercial', 'office', 'warehouse', 'factory'].includes(k) || c === 'office' || c === 'craft') return 'werk';
+  if (['parking', 'parking_space'].includes(k)) return 'parking';
+  if (['motorway', 'trunk', 'motorway_link', 'trunk_link'].includes(k)) return 'snelweg';
+  if (['farmland', 'farmyard', 'meadow', 'grass', 'forest', 'wood', 'orchard'].includes(k)) return 'veld';
+  if (g.house) return 'thuis';
+  return 'straat';
+}
 async function spawnCall() {
   if (!S.cities.length) return;
   const types = availableTypes(); if (!types.length) return;
@@ -491,9 +510,15 @@ async function spawnCall() {
   for (let i = 0; i < S.cities.length; i++) { rc -= cw[i]; if (rc <= 0) { city = CITY_BY_ID[S.cities[i]]; break; } }
   const spread = 0.8 + city.size * 0.7;
   let [lat, lng] = offsetKm(city.lat, city.lng, gauss() * spread, gauss() * spread);
-  const geo = await geocodeQueued(lat, lng);
+  let geo = await geocodeQueued(lat, lng);
+  // oproepen van thuis: bij voorkeur een adres met huisnummer
+  if (geo && !geo.house && (type.cat === 'med' || type.cat === 'politie') && Math.random() < 0.8) {
+    const [la2, ln2] = offsetKm(city.lat, city.lng, gauss() * spread * 0.6, gauss() * spread * 0.6);
+    const g2 = await geocodeQueued(la2, ln2); if (g2 && g2.house) geo = g2;
+  }
   if (!S.running) return;
-  const V = VARIANT_SETS[type.cat], sev = pick(SEVERITIES), pat = pick(V.pat), loc = pick(V.loc), caller = pick(V.call);
+  const V = VARIANT_SETS[type.cat], sev = pick(SEVERITIES), pat = pick(V.pat), caller = pick(V.call);
+  const loc = geo ? { id: locFromGeo(geo) } : pick(V.loc);
   const truePrio = Math.min(3, Math.max(1, type.prio + sev.delta));
   let addr;
   if (geo) { lat = geo.lat; lng = geo.lng; addr = `${geo.road}${geo.house ? ' ' + geo.house : ''}, ${geo.city || city.name.split(' (')[0]}`; }
