@@ -117,14 +117,28 @@ function speak(text, kind = 'radio', seed = 0) {
 
 // ---------- Kaart ----------
 const map = L.map('map', { zoomControl: true }).setView([50.85, 4.35], 8);
+// CARTO-basiskaarten (sleutel is bedoeld voor gebruik in de browser)
+const CARTO_KEY = 'cb1_538j_1_f2a1221620e79689d3f8a977';
+const cartoLayer = style => L.tileLayer(`https://basemaps.cartocdn.com/rastertiles/${style}/{z}/{x}/{y}.png?key=${CARTO_KEY}`, {
+  maxZoom: 20,
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>-bijdragers &copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>',
+});
 const baseLayers = {
-  'Donker': L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 19, subdomains: 'abcd',
-    attribution: '&copy; OpenStreetMap-bijdragers &copy; CARTO' }),
-  'Straten (OSM)': L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap-bijdragers' }),
+  'Straten (licht)': cartoLayer('voyager'),
+  'Donker': cartoLayer('dark_all'),
+  'Grijs (licht)': cartoLayer('light_all'),
 };
+// valt CARTO weg, dan tijdelijk de gewone OSM-kaart
+let tileErrors = 0, osmFallback = null;
+for (const l of Object.values(baseLayers)) l.on('tileerror', () => {
+  if (++tileErrors === 12 && !osmFallback) {
+    osmFallback = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap-bijdragers' }).addTo(map);
+    osmFallback.bringToBack();
+  }
+});
 function applyTheme() {
   document.documentElement.dataset.theme = S.theme;
-  const want = S.theme === 'light' ? 'Straten (OSM)' : 'Donker';
+  const want = S.theme === 'light' ? 'Straten (licht)' : 'Donker';
   for (const [k, l] of Object.entries(baseLayers)) { if (k === want) { if (!map.hasLayer(l)) l.addTo(map); } else if (map.hasLayer(l)) map.removeLayer(l); }
   for (const id of ['btnTheme', 'btnThemeHome']) { const b = document.getElementById(id); if (b) b.textContent = S.theme === 'light' ? '🌙' : '☀️'; }
 }
