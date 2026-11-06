@@ -4,131 +4,210 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Meldkamer 112</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap">
   <link rel="stylesheet" href="lib/leaflet/leaflet.css">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <header id="topbar">
-    <div class="brand">📟 Meldkamer <b>112</b></div>
-    <div class="stat" title="Dispatcher">👤 <span id="playerName">-</span></div>
-    <div class="stat" title="Bemande centrale(s)">📍 <span id="regionName">-</span></div>
-    <div class="stat clockbox" title="Kloktijd in de centrale"><span id="clock" class="bigclock">00:00:00</span><small id="dateInfo"></small></div>
-    <div class="stat" title="Krediet">💶 <span id="credits">0</span></div>
-    <div class="stat" title="Level / ervaring">⭐ Lvl <span id="level">1</span> <small>(<span id="xp">0</span> XP)</small></div>
-    <div class="stat" title="Afgehandeld / mislukt">✅ <span id="done">0</span> · ❌ <span id="failed">0</span></div>
-    <div class="stat" title="Percentage interventies binnen de aanrijnorm">⏱️ Norm <span id="normPct">-</span></div>
-    <div class="speed">
-      <button data-speed="0" title="Pauze (spatie)">⏸</button>
-      <button data-speed="1" class="active">1x</button>
-      <button data-speed="2">2x</button>
-      <button data-speed="4">4x</button>
-    </div>
-    <button id="btnTheme" class="ghost" title="Licht/donker thema">☀️</button>
-    <button id="btnVoice" class="ghost" title="Stemmen van bellers en ploegen aan/uit">🗣️</button>
-    <button id="btnSound" class="ghost" title="Geluid aan/uit">🔊</button>
-    <button id="btnRegion" class="ghost">🏠 Menu</button>
-  </header>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="logo" viewBox="0 0 48 48">
+      <circle cx="24" cy="24" r="22" fill="var(--accent)"/>
+      <path d="M17 31a10 10 0 0 1 0-14M13 35a16 16 0 0 1 0-22M31 17a10 10 0 0 1 0 14M35 13a16 16 0 0 1 0 22" stroke="#fff" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+      <circle cx="24" cy="24" r="4" fill="#fff"/>
+    </symbol>
+  </svg>
 
-  <main>
-    <aside id="sidebar">
-      <nav class="tabs">
-        <button data-tab="calls" class="active">📞 112 <span id="callBadge" class="badge hidden">0</span></button>
-        <button data-tab="radio">📻 Radio <span id="radioBadge" class="badge hidden">0</span></button>
-        <button data-tab="units">🚨 Eenheden</button>
-        <button data-tab="stations">🏢 Posten</button>
+  <!-- ================= STARTPAGINA ================= -->
+  <div id="home">
+    <header class="home-head wrap">
+      <a class="brand-lg" href="#top"><svg><use href="#logo"/></svg><span><b>Meldkamer 112</b><small>Dispatch-simulator voor België</small></span></a>
+      <nav class="home-nav">
+        <a href="#dienst" class="navbtn primary-ghost">Spelen</a>
+        <a href="#hoe" class="navbtn">Hoe werkt het</a>
+        <a href="#faq" class="navbtn">Vragen</a>
+        <button id="btnThemeHome" class="navbtn icon" title="Licht/donker thema">☀️</button>
       </nav>
-      <section id="tab-calls" class="tab active">
-        <h3>Binnenkomende oproepen</h3>
-        <div id="incomingList" class="list"><p class="empty">Geen oproepen in de wachtrij.</p></div>
-        <h3>Inzetten</h3>
-        <div id="incidentList" class="list"><p class="empty">Geen actieve incidenten.</p></div>
-        <h3>112-lijn · logboek</h3>
-        <div id="logbook" class="logbook"></div>
-      </section>
-      <section id="tab-radio" class="tab">
-        <div class="ptt-row">
-          <button id="btnPTT" class="ptt" title="Houd ingedrukt (of houd de T-toets ingedrukt) en spreek">🎙️ Push-to-talk</button>
-          <button id="btnAckAll" class="ghost small">Alles begrepen</button>
-        </div>
-        <p class="muted" id="pttHint">Houd de knop of de <b>T</b>-toets ingedrukt en zeg bv. <i>“begrepen”</i>, of bij een transportvraag de naam van het ziekenhuis (<i>“AZ Brugge”</i>).</p>
-        <div id="radioList" class="list"><p class="empty">Nog geen radioverkeer.</p></div>
-      </section>
-      <section id="tab-units" class="tab">
-        <div class="filters">
-          <input id="unitSearch" type="search" placeholder="Zoek naam…">
-          <select id="unitFilterType"></select>
-        </div>
-        <div class="filters">
-          <select id="unitFilterCity"></select>
-          <select id="unitFilterStatus">
-            <option value="">Alle statussen</option>
-            <option value="1">1 · Beschikbaar</option>
-            <option value="2">2 · Onderweg</option>
-            <option value="3">3 · Ter plaatse</option>
-            <option value="4">4 · Transport</option>
-            <option value="5">5 · Terug naar post</option>
-          </select>
-        </div>
-        <div id="unitList" class="list"></div>
-      </section>
-      <section id="tab-stations" class="tab">
-        <button id="btnBuild" class="primary wide">➕ Nieuwe post bouwen</button>
-        <h3>Ziekenhuizen (spoedgevallen)</h3>
-        <div id="hospitalList" class="list"></div>
-        <h3>Posten</h3>
-        <div id="stationList" class="list"></div>
-      </section>
-    </aside>
+    </header>
 
-    <div id="mapWrap">
-      <div id="map"></div>
-      <div id="log"></div>
-      <div id="buildHint" class="hidden">Klik op de kaart om je nieuwe post te plaatsen · <a href="#" id="cancelBuild">annuleren</a></div>
-    </div>
-  </main>
+    <main class="wrap home-main" id="top">
+      <p class="eyebrow">Meldkamersimulator · België</p>
+      <h1 class="hero">Jij neemt op als 112 rinkelt.</h1>
+      <p class="lead">Bemand een noodcentrale: stel de beller de juiste vragen, kies protocol en prioriteit, stuur ziekenwagens, PIT's, MUG's, brandweer en politie, en houd het radioverkeer onder controle.</p>
 
-  <!-- Startscherm -->
-  <div id="regionModal" class="modal">
-    <div class="modal-box wide">
-      <h1>📟 Meldkamer 112</h1>
-      <p class="sub">Bemand een noodcentrale: neem oproepen aan, stel de juiste vragen, kies protocol en dringendheid, stuur de juiste middelen en voer het radioverkeer.</p>
-      <div class="start-grid">
-        <label>Naam dispatcher
-          <input id="pName" type="text" placeholder="Jouw naam" maxlength="24">
-        </label>
-        <label>Dag
-          <select id="pDay"><option value="werkdag">Werkdag</option><option value="weekend">Weekend (drukker 's nachts)</option></select>
-        </label>
-        <label>Starttijd
-          <select id="pStart">
-            <option value="now">Nu</option><option value="07:00">07:00 (vroege dienst)</option><option value="14:00">14:00 (late dienst)</option>
-            <option value="22:00">22:00 (nachtdienst)</option>
-          </select>
-        </label>
+      <div class="stats">
+        <div class="stat-tile"><b id="stPosts">0</b><span>posten</span></div>
+        <div class="stat-tile"><b id="stHosp">0</b><span>ziekenhuizen</span></div>
+        <div class="stat-tile"><b id="stProto">0</b><span>protocollen</span></div>
+        <div class="stat-tile"><b id="stCities">0</b><span>steden</span></div>
       </div>
-      <h3 class="pad">Centrales <small class="muted">— klik om een volledige centrale te bemannen</small></h3>
-      <div id="centraleGrid"></div>
-      <details id="refine">
-        <summary>🔎 Verfijnen: enkel bepaalde steden (bv. alleen Brugge of Roeselare)</summary>
-        <div class="region-actions">
-          <button id="selAll" class="ghost">Heel België</button>
-          <button id="selNone" class="ghost">Niets</button>
-          <input id="citySearch" type="search" placeholder="Zoek een stad…">
+
+      <section class="box" id="runningBox">
+        <h2>Lopende dienst</h2>
+        <p id="runningText" class="muted">Er loopt nu geen dienst. Start hieronder een nieuwe.</p>
+        <button id="btnResume" class="btn primary hidden">Dienst hervatten ▶</button>
+      </section>
+
+      <section class="box" id="dienst">
+        <h2>Nieuwe dienst</h2>
+        <div class="form-grid">
+          <label class="span2">Naam dispatcher
+            <input id="pName" type="text" placeholder="Jouw naam" maxlength="24">
+          </label>
+          <label>Dag
+            <select id="pDay"><option value="werkdag">Werkdag</option><option value="weekend">Weekend</option></select>
+          </label>
+          <label>Starttijd
+            <select id="pStart">
+              <option value="now">Nu</option><option value="07:00">07:00 (vroege dienst)</option><option value="14:00">14:00 (late dienst)</option><option value="22:00">22:00 (nachtdienst)</option>
+            </select>
+          </label>
         </div>
-        <div id="regionTree"></div>
-      </details>
-      <div class="modal-foot">
-        <span id="selCount">0 steden gekozen</span>
-        <label class="chk"><input type="checkbox" id="keepProgress" checked> Krediet &amp; level behouden</label>
-        <button id="startGame" class="primary">Dienst starten ▶</button>
+        <h3 class="lbl">Centrales</h3>
+        <div id="centraleGrid"></div>
+        <p class="muted small">Kies de centrale(s) die je bemant.</p>
+        <details id="refine">
+          <summary>Enkel bepaalde steden bemannen (bv. alleen Brugge of Roeselare)</summary>
+          <div class="region-actions">
+            <button id="selAll" class="btn ghost small">Heel België</button>
+            <button id="selNone" class="btn ghost small">Niets</button>
+            <input id="citySearch" type="search" placeholder="Zoek een stad…">
+          </div>
+          <div id="regionTree"></div>
+        </details>
+        <div class="start-foot">
+          <span id="selCount" class="muted">0 steden gekozen</span>
+          <label class="chk"><input type="checkbox" id="keepProgress" checked> Krediet &amp; level behouden</label>
+        </div>
+        <button id="startGame" class="btn primary block">Dienst starten</button>
+      </section>
+
+      <section id="hoe">
+        <h2 class="sec">Een dienst in de meldkamer</h2>
+        <p class="lead small">Je zit aan de 112-lijn. De telefoon gaat, iemand vertelt in paniek wat er aan de hand is, en jij beslist wie er vertrekt.</p>
+        <ol class="steps">
+          <li><b>Oproep aannemen</b><span>Vraag naar het adres en de toestand van het slachtoffer. Kies daarna het protocol en de prioriteit.</span></li>
+          <li><b>Middelen sturen</b><span>Ziekenwagen, PIT, MUG of helikopter: je ziet wie het dichtst is en hoe lang de rit duurt.</span></li>
+          <li><b>Radioverkeer</b><span>Ploegen melden zich ter plaatse en vrij. Bevestig met een klik of spreek terug met push-to-talk.</span></li>
+          <li><b>Afvoer en drukte</b><span>Kies het juiste ziekenhuis, bewaak de aanrijnorm en schakel een buurcentrale in als het te druk wordt.</span></li>
+        </ol>
+      </section>
+
+      <section id="faq">
+        <h2 class="sec">Veelgestelde vragen</h2>
+        <details class="faq"><summary>Is het spel gratis?</summary><p>Ja. Alles draait in je browser, zonder account of betaling.</p></details>
+        <details class="faq"><summary>Moet ik iets installeren?</summary><p>Nee. Een recente browser volstaat, op je computer of je gsm. Op een computer heb je wel meer overzicht.</p></details>
+        <details class="faq"><summary>Hoe werkt push-to-talk?</summary><p>Houd de knop of de T-toets ingedrukt en spreek. Het spel gebruikt de spraakherkenning van je browser; dat werkt het best in Chrome of Edge. Bellers en ploegen spreken via de voorleesfunctie van je browser.</p></details>
+        <details class="faq"><summary>Wordt mijn voortgang bewaard?</summary><p>Je krediet, level, gekochte voertuigen en posten worden in deze browser bewaard. Een lopende dienst begint opnieuw als je de pagina sluit.</p></details>
+        <details class="faq"><summary>Is dit een echte noodcentrale?</summary><p>Nee. Het is een spel. Posten, adressen, meldingen en personen zijn fictief. Bij echte nood: bel 112.</p></details>
+      </section>
+
+      <footer class="home-foot">Simulatiespel, niet verbonden met de hulpcentra 112 of andere hulpdiensten. Alle meldingen en personen zijn fictief. Bij echte nood: bel 112.</footer>
+    </main>
+  </div>
+
+  <!-- ================= SPELSCHERM ================= -->
+  <div id="game" class="hidden">
+    <header id="topbar" class="panel">
+      <div class="tb-brand">
+        <svg class="tb-logo"><use href="#logo"/></svg>
+        <div><b>Meldkamer 112</b><small id="regionName">-</small></div>
       </div>
+      <div class="tb-clock">
+        <span id="clock" class="bigclock">00:00:00</span>
+        <small id="dateInfo"></small>
+      </div>
+      <div class="tb-controls">
+        <span class="pill" title="Dispatcher">👤 <span id="playerName">-</span></span>
+        <span class="pill" title="Krediet">💶 <span id="credits">0</span></span>
+        <span class="pill" title="Level / ervaring">⭐ <span id="level">1</span> <small>(<span id="xp">0</span> XP)</small></span>
+        <span class="pill" title="Afgehandeld / mislukt">✅ <span id="done">0</span> · ❌ <span id="failed">0</span></span>
+        <span class="pill" title="Binnen de aanrijnorm">⏱️ <span id="normPct">-</span></span>
+        <div class="speed">
+          <button data-speed="0" title="Pauze (spatie)">⏸</button>
+          <button data-speed="1" class="active">1×</button>
+          <button data-speed="2">2×</button>
+          <button data-speed="4">4×</button>
+        </div>
+        <button id="btnTheme" class="iconbtn" title="Licht/donker thema">☀️</button>
+        <button id="btnVoice" class="iconbtn" title="Stemmen aan/uit">🗣️</button>
+        <button id="btnSound" class="iconbtn" title="Geluid aan/uit">🔊</button>
+        <button id="btnRegion" class="iconbtn" title="Terug naar het menu">☰</button>
+      </div>
+    </header>
+
+    <div class="board">
+      <section class="col col-left">
+        <div class="panel grow">
+          <div class="phead">Inzetten <span class="count" id="incCount">0</span></div>
+          <div id="incidentList" class="pbody list"></div>
+        </div>
+        <div class="panel grow">
+          <div class="phead">112-lijn <span id="callBadge" class="count alert hidden">0</span>
+            <button id="btnNeighbor" class="phead-btn" title="Schakel de oudste wachtende oproep door naar een buurcentrale">📞 Buurcentrale</button></div>
+          <div class="pbody">
+            <div id="incomingList" class="list"></div>
+            <div id="logbook" class="logbook"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="col col-map panel">
+        <div id="mapWrap">
+          <div id="map"></div>
+          <div id="log"></div>
+          <div id="buildHint" class="hidden">Klik op de kaart om je nieuwe post te plaatsen · <a href="#" id="cancelBuild">annuleren</a></div>
+        </div>
+      </section>
+
+      <section class="col col-right panel">
+        <nav class="tabs phead">
+          <button data-tab="units" class="active">Eenheden <span class="count" id="unitCount">0</span></button>
+          <button data-tab="radio">Radio <span id="radioBadge" class="count alert hidden">0</span></button>
+          <button data-tab="stations">Posten</button>
+        </nav>
+        <div id="tab-units" class="tab active">
+          <div class="filters">
+            <input id="unitSearch" type="search" placeholder="Zoek naam…">
+            <select id="unitFilterType"></select>
+          </div>
+          <div class="filters">
+            <select id="unitFilterCity"></select>
+            <select id="unitFilterStatus">
+              <option value="">Alle statussen</option>
+              <option value="1">1 · Beschikbaar</option>
+              <option value="2">2 · Onderweg</option>
+              <option value="3">3 · Ter plaatse</option>
+              <option value="4">4 · Transport</option>
+              <option value="5">5 · Terug naar post</option>
+            </select>
+          </div>
+          <div id="unitList" class="ulist"></div>
+          <p class="muted small pad">Klik op een voertuig om het op de kaart te tonen.</p>
+        </div>
+        <div id="tab-radio" class="tab">
+          <div class="ptt-row">
+            <button id="btnPTT" class="ptt" title="Houd ingedrukt (of de T-toets) en spreek">🎙️ Push-to-talk</button>
+            <button id="btnAckAll" class="btn ghost small">Alles begrepen</button>
+          </div>
+          <p class="muted small" id="pttHint">Houd de knop of de <b>T</b>-toets ingedrukt en zeg bv. <i>“begrepen”</i>, of bij een transportvraag de naam van het ziekenhuis.</p>
+          <div id="radioList" class="list"></div>
+        </div>
+        <div id="tab-stations" class="tab">
+          <button id="btnBuild" class="btn primary block">➕ Nieuwe post bouwen</button>
+          <h3 class="lbl">Ziekenhuizen (spoed)</h3>
+          <div id="hospitalList" class="list"></div>
+          <h3 class="lbl">Posten</h3>
+          <div id="stationList" class="list"></div>
+        </div>
+      </section>
     </div>
   </div>
 
   <!-- Oproep -->
   <div id="callModal" class="modal hidden">
     <div class="modal-box wide">
-      <div class="call-head">📞 <span id="callTitle">Oproep 112</span> <span id="callTimer" class="call-timer">0:00</span></div>
+      <div class="call-head">📞 <span id="callTitle">Oproep 112</span> <span id="callTimer" class="call-timer"></span></div>
       <div class="call-cols">
         <div class="call-left">
           <div id="convo" class="convo"></div>
@@ -136,19 +215,15 @@
         </div>
         <div class="call-right">
           <div class="field"><b>Adres</b><div id="callAddr" class="addr">— nog niet gevraagd —</div></div>
-          <div class="field"><b>Protocol</b>
-            <select id="callProto"></select>
-          </div>
-          <div class="field"><b>Dringendheid</b>
-            <div id="callPrio" class="prio-row"></div>
-          </div>
+          <div class="field"><b>Protocol</b><select id="callProto"></select></div>
+          <div class="field"><b>Prioriteit</b><div id="callPrio" class="prio-row"></div></div>
           <div class="field"><b>Voorgestelde middelen</b><div id="callNeed" class="chips">-</div></div>
         </div>
       </div>
       <div class="modal-foot">
-        <button id="callReject" class="ghost" title="Geen hulp nodig / valse oproep">☎️ Ophangen (geen hulp nodig)</button>
-        <button id="callTransfer" class="ghost" title="Laat een buurcentrale deze oproep overnemen">↪ Naar buurcentrale</button>
-        <button id="callAccept" class="primary">Incident aanmaken ▶</button>
+        <button id="callReject" class="btn ghost">Ophangen (geen hulp nodig)</button>
+        <button id="callTransfer" class="btn ghost">↪ Naar buurcentrale</button>
+        <button id="callAccept" class="btn primary">Inzet aanmaken</button>
       </div>
     </div>
   </div>
@@ -158,14 +233,12 @@
     <div class="modal-box wide">
       <div class="call-head">🚨 Alarmeren · <span id="dispTitle"></span></div>
       <div id="dispNeed" class="need-row"></div>
-      <div class="filters">
-        <label class="chk"><input type="checkbox" id="dispOnlyNeeded" checked> Enkel benodigde types</label>
-      </div>
+      <div class="filters padx"><label class="chk"><input type="checkbox" id="dispOnlyNeeded" checked> Enkel benodigde types</label></div>
       <div id="dispUnits" class="list unit-table"></div>
       <div class="modal-foot">
-        <button id="dispAuto" class="ghost">⚡ Automatisch voorstel</button>
-        <button id="dispCancel" class="ghost">Sluiten</button>
-        <button id="dispSend" class="primary">Alarmeer geselecteerde (<span id="dispCount">0</span>)</button>
+        <button id="dispAuto" class="btn ghost">⚡ Automatisch voorstel</button>
+        <button id="dispCancel" class="btn ghost">Sluiten</button>
+        <button id="dispSend" class="btn primary">Alarmeer (<span id="dispCount">0</span>)</button>
       </div>
     </div>
   </div>
@@ -178,9 +251,7 @@
         <p id="hospInfo" class="caller"></p>
         <div id="hospList" class="list"></div>
       </div>
-      <div class="modal-foot">
-        <button id="hospLater" class="ghost">Later</button>
-      </div>
+      <div class="modal-foot"><button id="hospLater" class="btn ghost">Later</button></div>
     </div>
   </div>
 
@@ -189,22 +260,16 @@
     <div class="modal-box">
       <div class="call-head">🏗️ Nieuwe post</div>
       <div class="call-body">
-        <label>Type post
-          <select id="buildType"></select>
-        </label>
-        <label>Naam
-          <input id="buildName" type="text">
-        </label>
-        <p class="muted">Een nieuwe post komt met één voertuig. Extra voertuigen koop je in het tabblad Posten.</p>
+        <label>Type post <select id="buildType"></select></label>
+        <label>Naam <input id="buildName" type="text"></label>
+        <p class="muted small">Een nieuwe post komt met één voertuig. Extra voertuigen koop je in het tabblad Posten.</p>
       </div>
       <div class="modal-foot">
-        <button id="buildCancel" class="ghost">Annuleren</button>
-        <button id="buildConfirm" class="primary">Bouwen</button>
+        <button id="buildCancel" class="btn ghost">Annuleren</button>
+        <button id="buildConfirm" class="btn primary">Bouwen</button>
       </div>
     </div>
   </div>
-
-  <footer class="disclaimer">Simulatiespel. Alle meldingen en personen zijn fictief. Bij echte nood: bel 112.</footer>
 
   <script src="lib/leaflet/leaflet.js"></script>
   <script src="js/data.js"></script>

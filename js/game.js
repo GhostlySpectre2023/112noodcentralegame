@@ -126,7 +126,7 @@ function applyTheme() {
   document.documentElement.dataset.theme = S.theme;
   const want = S.theme === 'light' ? 'Straten (OSM)' : 'Donker';
   for (const [k, l] of Object.entries(baseLayers)) { if (k === want) { if (!map.hasLayer(l)) l.addTo(map); } else if (map.hasLayer(l)) map.removeLayer(l); }
-  const b = document.getElementById('btnTheme'); if (b) b.textContent = S.theme === 'light' ? '🌙' : '☀️';
+  for (const id of ['btnTheme', 'btnThemeHome']) { const b = document.getElementById(id); if (b) b.textContent = S.theme === 'light' ? '🌙' : '☀️'; }
 }
 const layers = { stations: L.layerGroup().addTo(map), units: L.layerGroup().addTo(map), incidents: L.layerGroup().addTo(map), routes: L.layerGroup().addTo(map) };
 L.control.layers(baseLayers, { 'Posten': layers.stations, 'Voertuigen': layers.units, 'Routes': layers.routes }, { position: 'topright' }).addTo(map);
@@ -771,6 +771,7 @@ function renderUI() {
   $('#done').textContent = S.done; $('#failed').textContent = S.failed;
   $('#normPct').textContent = S.normTotal ? Math.round(S.normHit / S.normTotal * 100) + '%' : '-';
   $('#playerName').textContent = S.player || 'Dispatcher';
+  $('#incCount').textContent = S.incidents.length; $('#unitCount').textContent = S.units.length;
   const n = S.calls.filter(c => !c.answered).length;
   $('#callBadge').textContent = n; $('#callBadge').classList.toggle('hidden', !n);
   const ro = S.radio.filter(m => m.open).length;
@@ -782,6 +783,7 @@ function renderUI() {
       <span><button class="small ghost" data-transfer="${c.id}" title="Naar buurcentrale">↪</button> <span class="sub">${fmtTime(left)}</span></span></div>
       <div class="bar timer"><div style="width:${left / CALL_TIMEOUT * 100}%"></div></div></div>`;
   }).join('') : '<p class="empty">Geen oproepen in de wachtrij.</p>';
+  if (!S.calls.length && S.logbook.length) $('#incomingList').innerHTML = '';
   $('#incidentList').innerHTML = S.incidents.length ? S.incidents.map(inc => {
     const T = TYPE_BY_ID[inc.typeId], P = PRIORITIES[inc.prio];
     const pct = inc.state === 'working' ? inc.progress / T.dur * 100 : 0;
@@ -789,14 +791,14 @@ function renderUI() {
     const mins = realMin(S.time - inc.created);
     const us = S.units.filter(u => u.incidentId === inc.id);
     return `<div class="card" data-inc="${inc.id}"><div class="row"><span class="inc-no">${incNo(inc)}</span><span class="inc-time">${fmtTime(realMin(S.time - inc.created) * 60)}</span></div>
-      <div class="row"><span class="title">${incName(inc)}</span>
+      <div class="row"><span class="title">${incName(inc)}, <span style="color:${P.color}">${P.name}</span></span>
       <button class="small" data-alarm="${inc.id}">Alarmeren</button></div>
-      <div class="sub"><span style="color:${P.color}">${P.name}</span> · ${esc(inc.addr)} ${inc.arrived ? '' : `· <span class="${mins <= P.norm ? 'norm-ok' : 'norm-bad'}">${Math.floor(mins)}/${P.norm} min</span>`}</div>
+      <div class="sub">${esc(inc.addr)} ${inc.arrived ? '' : `· <span class="${mins <= P.norm ? 'norm-ok' : 'norm-bad'}">${Math.floor(mins)}/${P.norm} min</span>`}</div>
       <div class="chips">${us.map(u => `<span class="uchip"><span class="st st${u.status}">${u.status}</span> ${esc(u.name)}</span>`).join('')}</div>
       <div class="chips">${needChips(shownNeed(inc), incStatus(inc))}</div>
       ${inc.state === 'working' ? `<div class="bar"><div style="width:${pct}%"></div></div>` : `<div class="bar timer" title="Resterende tijd"><div style="width:${pat}%;background:${pat < 30 ? '#ef4444' : ''}"></div></div>`}
     </div>`;
-  }).join('') : '<p class="empty">Geen actieve incidenten.</p>';
+  }).join('') : '<p class="empty">Geen lopende inzetten.</p>';
   if (radioDirty && $('#tab-radio').classList.contains('active')) renderRadio();
   if ($('#tab-units').classList.contains('active')) renderUnits();
   if (!$('#dispatchModal').classList.contains('hidden') && dispInc) {
@@ -825,8 +827,8 @@ function renderUnits() {
     .sort((a, b) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name));
   $('#unitList').innerHTML = list.slice(0, 300).map(u => {
     const VT = VEHICLE_TYPES[u.type];
-    return `<div class="card" data-unit="${u.id}"><div class="row"><span><span class="st st${grounded(u) && u.status === 1 ? 'x' : u.status}">${statusCode(u)}</span> <b style="color:${VT.color}">${VT.short}</b> ${esc(u.name)}</span></div>
-      <div class="sub">${u.awaitHosp ? 'Wacht op ziekenhuiskeuze' : grounded(u) && u.status === 1 ? 'Niet inzetbaar (nacht/weer)' : STATUS_TXT[u.status]} · ${esc(stationOf(u)?.name || '')}</div></div>`;
+    return `<div class="urow" data-unit="${u.id}" title="${esc(VT.name)}"><span class="st st${grounded(u) && u.status === 1 ? 'x' : u.status}">${statusCode(u)}</span><span class="dot" style="background:${VT.color}"></span><span class="uname">${esc(u.name)}</span>
+      <span class="usub">${u.awaitHosp ? 'Wacht op ziekenhuiskeuze' : grounded(u) && u.status === 1 ? 'Niet inzetbaar (nacht/weer)' : STATUS_TXT[u.status]} · ${esc(stationOf(u)?.name || '')}</span></div>`;
   }).join('') + (list.length > 300 ? `<p class="empty">… en nog ${list.length - 300} voertuigen (gebruik de filter)</p>` : '') || '<p class="empty">Geen voertuigen.</p>';
 }
 function renderLogbook() {
@@ -896,10 +898,22 @@ function renderRegionTree(filter = '') {
   $('#selCount').textContent = chosen.size ? `${regionLabel([...chosen])} · ${chosen.size} ${chosen.size === 1 ? 'stad' : 'steden'}` : 'Kies minstens één centrale of stad';
   $('#startGame').disabled = !chosen.size;
 }
+function fillHomeStats() {
+  const nC = Object.keys(CITY_BY_ID).length;
+  $('#stPosts').textContent = (nC * 3).toLocaleString('nl-BE');
+  $('#stHosp').textContent = nC; $('#stProto').textContent = INCIDENT_TYPES.length; $('#stCities').textContent = nC;
+}
+function showGame() {
+  hide('#home'); show('#game'); window.scrollTo(0, 0);
+  setTimeout(() => map.invalidateSize(), 50);
+}
 function openStart() {
+  const running = S.running && S.time > 0;
+  $('#runningText').textContent = running ? `Je dienst in ${regionLabel()} loopt nog (${clockStr()}, ${S.incidents.length} lopende inzetten). Hij staat op pauze.` : 'Er loopt nu geen dienst. Start hieronder een nieuwe.';
+  $('#btnResume').classList.toggle('hidden', !running);
   S.pendingCities = [...S.cities]; S.running = false;
   $('#pName').value = S.player; $('#pDay').value = S.day; $('#pStart').value = S.start;
-  $('#citySearch').value = ''; renderStart(); show('#regionModal');
+  $('#citySearch').value = ''; renderStart(); hide('#game'); show('#home'); window.scrollTo(0, 0);
 }
 function toggleCities(ids, on) {
   const set = new Set(S.pendingCities); ids.forEach(id => on ? set.add(id) : set.delete(id));
@@ -980,7 +994,12 @@ const stClick = e => {
 };
 $('#stationList').onclick = stClick; $('#hospitalList').onclick = stClick;
 $('#unitFilterCity').onchange = renderUnits; $('#unitFilterStatus').onchange = renderUnits; $('#unitFilterType').onchange = renderUnits; $('#unitSearch').oninput = renderUnits;
-$('#btnTheme').onclick = () => { S.theme = S.theme === 'light' ? 'dark' : 'light'; applyTheme(); save(); };
+$('#btnTheme').onclick = $('#btnThemeHome').onclick = () => { S.theme = S.theme === 'light' ? 'dark' : 'light'; applyTheme(); save(); };
+$('#btnResume').onclick = () => { S.running = true; showGame(); };
+$('#btnNeighbor').onclick = () => {
+  const c = S.calls.find(x => !x.answered);
+  if (c) transferCall(c); else log('Er wacht geen oproep om door te schakelen.', '#38bdf8');
+};
 $('#questions').onclick = e => { const b = e.target.closest('[data-q]'); if (b) askQuestion(b.dataset.q); };
 $('#callProto').onchange = e => { if (!currentCall) return; currentCall.protoId = e.target.value; if (e.target.value && !currentCall.prio) currentCall.prio = TYPE_BY_ID[e.target.value].prio; renderCall(); };
 $('#callPrio').onclick = e => { const b = e.target.closest('[data-prio]'); if (b && currentCall) { currentCall.prio = +b.dataset.prio; renderCall(); } };
@@ -1022,8 +1041,8 @@ $('#startGame').onclick = () => {
     if (S.day === 'werkdag' && we) d.setDate(d.getDate() + (wd === 6 ? 2 : 1));
     d.setHours(0, 0, 0, 0); S.baseDate = d.getTime(); }
   S.incNo = 100 + Math.floor(Math.random() * 60); S.logbook = []; setWeather(true);
-  ['#regionModal', '#callModal', '#dispatchModal', '#hospModal'].forEach(hide);
-  save(); buildWorld(); S.running = true;
+  ['#callModal', '#dispatchModal', '#hospModal'].forEach(hide);
+  showGame(); save(); buildWorld(); S.running = true;
   shiftHandover();
   log(`🟢 Dienst gestart${S.player ? ` voor <b>${esc(S.player)}</b>` : ''} in <b>${esc(regionLabel())}</b>. Succes!`, '#22c55e');
   radio('Meldkamer', `Dienst gestart om ${clockStr()}. Alle ploegen: ${regionLabel()} is bemand.`, { me: true });
@@ -1040,6 +1059,7 @@ document.addEventListener('keyup', e => { if (e.code === 'KeyT') pttStop(); });
 // ---------- Start ----------
 load();
 applyTheme();
+fillHomeStats();
 $('#unitFilterType').innerHTML = '<option value="">Alle types</option>' + Object.entries(VEHICLE_TYPES).map(([k, v]) => `<option value="${k}">${k} · ${v.name}</option>`).join('');
 $('#btnSound').textContent = S.sound ? '🔊' : '🔇';
 $('#btnVoice').style.opacity = S.voice ? 1 : 0.4;
