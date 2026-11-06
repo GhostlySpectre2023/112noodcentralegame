@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Meldkamer 112</title>
+  <link rel="stylesheet" href="lib/leaflet/leaflet.css">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header id="topbar">
+    <div class="brand">📟 Meldkamer <b>112</b></div>
+    <div class="stat" title="Gekozen regio">📍 <span id="regionName">-</span></div>
+    <div class="stat" title="Speeltijd">🕒 <span id="clock">00:00</span></div>
+    <div class="stat" title="Krediet">💶 <span id="credits">0</span></div>
+    <div class="stat" title="Level / ervaring">⭐ Lvl <span id="level">1</span> <small>(<span id="xp">0</span> XP)</small></div>
+    <div class="stat" title="Afgehandelde incidenten">✅ <span id="done">0</span> · ❌ <span id="failed">0</span></div>
+    <div class="speed">
+      <button data-speed="0" title="Pauze">⏸</button>
+      <button data-speed="1" class="active">1x</button>
+      <button data-speed="2">2x</button>
+      <button data-speed="4">4x</button>
+    </div>
+    <button id="btnRegion" class="ghost">🗺️ Regio</button>
+    <button id="btnSound" class="ghost" title="Geluid aan/uit">🔊</button>
+  </header>
+
+  <main>
+    <aside id="sidebar">
+      <nav class="tabs">
+        <button data-tab="calls" class="active">📞 Meldingen <span id="callBadge" class="badge hidden">0</span></button>
+        <button data-tab="units">🚨 Eenheden</button>
+        <button data-tab="stations">🏢 Posten</button>
+      </nav>
+      <section id="tab-calls" class="tab active">
+        <h3>Binnenkomende oproepen</h3>
+        <div id="incomingList" class="list"><p class="empty">Geen oproepen in de wachtrij.</p></div>
+        <h3>Actieve incidenten</h3>
+        <div id="incidentList" class="list"><p class="empty">Geen actieve incidenten.</p></div>
+      </section>
+      <section id="tab-units" class="tab">
+        <div class="filters">
+          <select id="unitFilterCity"></select>
+          <select id="unitFilterStatus">
+            <option value="">Alle statussen</option>
+            <option value="1">1 · Beschikbaar</option>
+            <option value="2">2 · Onderweg</option>
+            <option value="3">3 · Ter plaatse</option>
+            <option value="4">4 · Transport</option>
+            <option value="5">5 · Terug naar post</option>
+          </select>
+        </div>
+        <div id="unitList" class="list"></div>
+      </section>
+      <section id="tab-stations" class="tab">
+        <button id="btnBuild" class="primary wide">➕ Nieuwe post bouwen</button>
+        <div id="stationList" class="list"></div>
+      </section>
+    </aside>
+
+    <div id="mapWrap">
+      <div id="map"></div>
+      <div id="log"></div>
+      <div id="buildHint" class="hidden">Klik op de kaart om je nieuwe post te plaatsen · <a href="#" id="cancelBuild">annuleren</a></div>
+    </div>
+  </main>
+
+  <!-- Startscherm / regiokeuze -->
+  <div id="regionModal" class="modal">
+    <div class="modal-box wide">
+      <h1>📟 Meldkamer 112</h1>
+      <p class="sub">Neem oproepen aan, maak incidenten aan en stuur de juiste hulpdiensten. Kies eerst in welke regio je wilt spelen:
+        heel België, een volledige provincie of enkel de steden die je aanvinkt (bijvoorbeeld alleen Brugge of Roeselare).</p>
+      <div class="region-actions">
+        <button id="selAll" class="ghost">Heel België</button>
+        <button id="selNone" class="ghost">Niets</button>
+        <input id="citySearch" type="search" placeholder="🔎 Zoek een stad…">
+      </div>
+      <div id="regionTree"></div>
+      <div class="modal-foot">
+        <span id="selCount">0 steden gekozen</span>
+        <label class="chk"><input type="checkbox" id="keepProgress" checked> Krediet &amp; level behouden</label>
+        <button id="startGame" class="primary">Start dienst ▶</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Oproep -->
+  <div id="callModal" class="modal hidden">
+    <div class="modal-box">
+      <div class="call-head">📞 <span id="callTitle">Oproep 112</span></div>
+      <div class="call-body">
+        <p class="caller" id="callText"></p>
+        <div class="call-meta">
+          <div><b>Adres:</b> <span id="callAddr"></span></div>
+          <div><b>Classificatie:</b> <span id="callType"></span></div>
+          <div><b>Nodig:</b> <span id="callNeed"></span></div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button id="callReject" class="ghost">Valse oproep / ophangen</button>
+        <button id="callAccept" class="primary">Incident aanmaken</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Alarmeren -->
+  <div id="dispatchModal" class="modal hidden">
+    <div class="modal-box wide">
+      <div class="call-head">🚨 Alarmeren · <span id="dispTitle"></span></div>
+      <div id="dispNeed" class="need-row"></div>
+      <div class="filters">
+        <label class="chk"><input type="checkbox" id="dispOnlyNeeded" checked> Enkel benodigde types</label>
+      </div>
+      <div id="dispUnits" class="list unit-table"></div>
+      <div class="modal-foot">
+        <button id="dispAuto" class="ghost">⚡ Automatisch voorstel</button>
+        <button id="dispCancel" class="ghost">Sluiten</button>
+        <button id="dispSend" class="primary">Alarmeer geselecteerde (<span id="dispCount">0</span>)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Post kopen -->
+  <div id="buildModal" class="modal hidden">
+    <div class="modal-box">
+      <div class="call-head">🏗️ Nieuwe post</div>
+      <div class="call-body">
+        <label>Type post
+          <select id="buildType"></select>
+        </label>
+        <label>Naam
+          <input id="buildName" type="text">
+        </label>
+        <p class="muted">Een nieuwe post komt met één voertuig. Extra voertuigen koop je in het tabblad Posten.</p>
+      </div>
+      <div class="modal-foot">
+        <button id="buildCancel" class="ghost">Annuleren</button>
+        <button id="buildConfirm" class="primary">Bouwen</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="lib/leaflet/leaflet.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>
