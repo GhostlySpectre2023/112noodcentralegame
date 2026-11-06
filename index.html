@@ -264,6 +264,8 @@
           <span class="ed-l">MED:</span><select id="edMed" class="edp"></select>
           <span class="ed-l">BRW:</span><select id="edBrw" class="edp"></select>
           <span class="ed-l">POLITIE:</span><select id="edPolSel" class="edp"></select>
+          <span class="ed-l">MEDISCHE BIJSTAND:</span><select id="edMedBij"></select>
+          <span class="ed-l">TEKST MIDDEL:</span><select id="edAbc"></select>
           <span class="ed-l">Prioriteit:</span><div id="edPrio" class="prio-row"></div>
         </div>
         <div id="dispNeed" class="proposal"></div>
@@ -290,9 +292,10 @@
         </div>
         <div class="ed-listhead">
           <b>Toegewezen voertuigen</b>
+          <div class="seg"><button id="sortEta" class="on">Rijtijd</button><button id="sortName">Naam</button></div>
           <div class="seg"><button id="fltAll" class="on">Alle</button><button id="fltProv">Eigen provincie</button></div>
         </div>
-        <div class="unit-head"><span>Voertuig</span><span>Type</span><span>Rijtijd</span><span>Afstand</span></div>
+        <div class="unit-head"><span>Voertuig</span><span>Type</span><span>Rijtijd</span><span>Afstand</span><span>Diensteinde</span></div>
         <div id="dispUnits" class="list unit-table"></div>
       </div>
       <div class="modal-foot">

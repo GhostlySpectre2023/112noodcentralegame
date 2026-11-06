@@ -282,11 +282,27 @@ function addStation(st, baseFleet) {
   S.stations.push(st);
   const T = STATION_TYPES[st.type];
   st.marker = L.marker([st.lat, st.lng], {
-    icon: L.divIcon({ className: '', html: `<div class="mk mk-station" style="background:${T.color}">${T.icon}</div>`, iconSize: [26, 26], iconAnchor: [13, 13] }),
+    icon: stationIcon(st),
     zIndexOffset: -100,
   }).bindTooltip(() => st.type === 'hosp' ? `${esc(st.name)} · spoed ${hospStatus(st)}` : esc(st.name)).addTo(st.type === 'hosp' ? layers.hospitals : layers.stations);
   st.marker.on('click', () => { switchTab('stations'); const el = document.getElementById('st-' + st.id); if (el) el.scrollIntoView({ behavior: 'smooth' }); });
   [...baseFleet, ...(S.extraVehicles[st.id] || [])].forEach(t => addUnit(st, t));
+  refreshStation(st);
+}
+// vierkante speld per post: kleur per soort, grijs als niets meer vrij is
+const PIN_COLORS = { fire: '#e0605a', med: '#7cc4f2', pol: '#4f6fbf', hosp: '#2f6fdb' };
+const HOUSE = '<svg viewBox="0 0 16 16" width="13" height="13"><path d="M8 2 L14 7.5 H12.3 V14 H9.6 V10 H6.4 V14 H3.7 V7.5 H2 Z" fill="currentColor"/></svg>';
+function stationIcon(st) {
+  const us = S.units.filter(u => u.station === st), free = us.filter(isFree).length;
+  const state = !us.length ? 'none' : free === 0 ? 'none' : free < us.length ? 'some' : 'all';
+  const glyph = st.type === 'hosp' ? '<b>H</b>' : HOUSE;
+  return L.divIcon({ className: '', html: `<div class="pin pin-${state}" style="--pc:${PIN_COLORS[st.type] || '#7cc4f2'}">${glyph}</div>`, iconSize: [20, 20], iconAnchor: [10, 10] });
+}
+function refreshStation(st) {
+  if (!st || !st.marker) return;
+  const key = S.units.filter(u => u.station === st).map(u => isFree(u) ? 1 : 0).join('');
+  if (st._pinKey === key) return;
+  st._pinKey = key; st.marker.setIcon(stationIcon(st));
 }
 function addUnit(st, type, temp = false) {
   st.unitCount[type] = (st.unitCount[type] || 0) + 1;
@@ -294,9 +310,12 @@ function addUnit(st, type, temp = false) {
   const VT = VEHICLE_TYPES[type];
   const u = {
     id: S.nextId++, type, stationId: st.id, status: 1, lat: st.lat, lng: st.lng, incidentId: null, move: null, temp,
-    name: temp ? `${VT.short} Buurcentrale ${st.unitCount[type]}` : type === 'HELI' ? `HELI ${city ? city.name.split(' ')[0] : st.name}` : `${VT.short} ${city ? city.name.split(' ')[0] : st.name} ${st.unitCount[type]}`,
+    name: temp ? `${unitPrefix(type, st.cityId)} Buurcentrale ${st.unitCount[type]}` : type === 'HELI' ? `HELI ${city ? city.name.split(' ')[0] : st.name}` : `${unitPrefix(type, st.cityId)} ${city ? city.name.split(' ')[0] : st.name} ${st.unitCount[type]}`,
   };
   u.station = st;
+  { const cc = (city ? city.name : st.name).replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase();
+    u.team = `T-${unitPrefix(type, st.cityId)}-${cc}-${String(st.unitCount[type]).padStart(2, '0')}`;
+    u.shiftEnd = [7, 19][Math.floor(Math.random() * 2)] * 3600; }
   u.marker = L.marker([u.lat, u.lng], { icon: unitIcon(u), zIndexOffset: 500 }).bindTooltip(() => `${esc(u.name)} · status ${u.status}`);
   u.marker.on('click', () => { if (u.incidentId) openDispatch(u.incidentId); });
   S.units.push(u);
@@ -313,11 +332,20 @@ function setStatus(u, s) {
   u.status = s;
   if (prev !== s && S.running) radioStatus(u);
   u.marker.setIcon(unitIcon(u));
+  refreshStation(u.station);
   if (s === 1) { if (layers.units.hasLayer(u.marker)) layers.units.removeLayer(u.marker); }
   else if (!layers.units.hasLayer(u.marker)) layers.units.addLayer(u.marker);
   dirty = true;
 }
 const stationOf = u => u.station;
+// In Brussel en Wallonië heet de MUG 'SMUR' en de ziekenwagen 'AMB'
+const FR_PROVS = ['bru', 'hen', 'lui', 'nam', 'wbr', 'lux'];
+function unitPrefix(type, cityId) {
+  const fr = FR_PROVS.includes(CITY_BY_ID[cityId]?.prov);
+  if (fr && type === 'MUG') return 'SMUR';
+  if (fr && type === 'AMB') return 'AMB';
+  return VEHICLE_TYPES[type].short;
+}
 const grounded = u => VEHICLE_TYPES[u.type].air && (isNight() || !S.weather.fly);
 const isFree = u => (u.status === 1 || u.status === 5) && !grounded(u) && !u.offDuty;
 const statusCode = u => (u.offDuty || grounded(u)) && u.status === 1 ? '–' : u.status;
@@ -344,6 +372,12 @@ async function fetchRealPosts(bbox) {
 function moveStation(st, lat, lng, name) {
   st.lat = lat; st.lng = lng; st.marker.setLatLng([lat, lng]);
   if (name) st.name = name;
+  // MUG/SMUR krijgt de naam van zijn ziekenhuis
+  if (name && st.type === 'hosp') {
+    const short = name.replace(/^(AZ|UZ|ZNA|GZA|CHU|CHR|H\.?-?Hart|Ziekenhuis|Hôpital|Clinique|Kliniek)\s+/i, '').trim();
+    const mugs = S.units.filter(u => u.station === st && u.type === 'MUG');
+    mugs.forEach((u, i) => { u.name = `${unitPrefix('MUG', st.cityId)} ${short}${mugs.length > 1 ? ' ' + (i + 1) : ''}`; });
+  }
   for (const u of S.units) if (u.station === st && u.status === 1 && !u.move) { u.lat = lat; u.lng = lng; u.marker.setLatLng([lat, lng]); }
 }
 async function snapStationsToReal() {
@@ -690,19 +724,47 @@ function requestSupport(nbId) {
 }
 
 // ---------- Inzet bewerken / alarmeren ----------
-let dispInc = null, dispSel = new Set(), dispProvOnly = false;
-const ED_SELECTS = [['#edMed', ['med', 'verkeer'], 'MED'], ['#edBrw', ['brand'], 'BRW'], ['#edPolSel', ['politie'], 'POL']];
-const edProtoValue = () => ED_SELECTS.map(([sel]) => $(sel).value).find(v => v) || '';
+let dispInc = null, dispSel = new Set(), dispProvOnly = false, dispSort = 'eta';
+// hoofdprotocol: MED (protocol|prio) gaat voor, dan BRW met gekoppeld type, dan een politieprotocol
+function edProtoValue() {
+  const med = $('#edMed').value; if (med) return med.split('|')[0];
+  const brw = BRW_CODES.find(b => b.code === $('#edBrw').value); if (brw && brw.typeId) return brw.typeId;
+  const pol = $('#edPolSel').value; if (TYPE_BY_ID[pol]) return pol;
+  return '';
+}
+function maxMerge(...needs) {
+  const out = {};
+  for (const n of needs) for (const [k, v] of Object.entries(n || {})) out[k] = Math.max(out[k] || 0, v);
+  return out;
+}
+// extra middelen die de calltaker zelf vraagt via BRW, POLITIE of MEDISCHE BIJSTAND
+function extraNeed(inc) {
+  const primary = inc.revealed ? inc.typeId : inc.protoId, parts = [];
+  const brw = BRW_CODES.find(b => b.code === inc.brw); if (brw && brw.typeId !== primary) parts.push(brw.need);
+  const pe = POL_EXTRA.find(p => p.code === inc.pol); if (pe) parts.push(pe.need);
+  if (TYPE_BY_ID[inc.pol] && inc.pol !== primary) parts.push(TYPE_BY_ID[inc.pol].need);
+  const mb = MED_BIJSTAND.find(m => m.code === inc.medbij); if (mb && mb.need) parts.push(mb.need);
+  return maxMerge(...parts);
+}
+const combinedNeed = inc => maxMerge(shownNeed(inc), extraNeed(inc));
 function openDispatch(id) {
   const inc = S.incidents.find(i => i.id === id); if (!inc) return;
   dispInc = inc; dispSel = new Set();
   $('#dispTitle').textContent = inc.addr;
   $('#edPlace').textContent = `${inc.addr} (${PROVINCES.find(p => p.id === CITY_BY_ID[inc.cityId].prov).name})`;
-  const cur = inc.revealed ? inc.typeId : inc.protoId;
-  for (const [sel, cats, pre] of ED_SELECTS) {
-    $(sel).innerHTML = '<option value=""></option>' + INCIDENT_TYPES.filter(t => cats.includes(t.cat)).map(t => `<option value="${t.id}">${pre}, ${protoLabel(t)}</option>`).join('');
-    $(sel).value = cats.includes(TYPE_BY_ID[cur].cat) ? cur : '';
-  }
+  const cur = inc.revealed ? inc.typeId : inc.protoId, curT = TYPE_BY_ID[cur];
+  const medTypes = INCIDENT_TYPES.filter(t => t.cat === 'med' || t.cat === 'verkeer');
+  $('#edMed').innerHTML = '<option value=""></option>' + medTypes.map(t => [1, 2, 3].map(p => `<option value="${t.id}|${p}">MED, ${protoLabel(t)}, ${PRIORITIES[p].name}</option>`).join('')).join('');
+  $('#edMed').value = medTypes.includes(curT) ? `${cur}|${inc.prio}` : '';
+  $('#edBrw').innerHTML = '<option value=""></option>' + BRW_CODES.map(b => `<option value="${b.code}">BRW, ${b.code} ${b.name}</option>`).join('');
+  $('#edBrw').value = inc.brw || (curT.cat === 'brand' ? (BRW_CODES.find(b => b.typeId === cur)?.code || '') : '');
+  $('#edPolSel').innerHTML = '<option value=""></option>' + POL_EXTRA.map(p => `<option value="${p.code}">${p.name.toUpperCase()}</option>`).join('') +
+    INCIDENT_TYPES.filter(t => t.cat === 'politie').map(t => `<option value="${t.id}">POL, ${protoLabel(t)}</option>`).join('');
+  $('#edPolSel').value = inc.pol || (curT.cat === 'politie' ? cur : '');
+  $('#edMedBij').innerHTML = '<option value=""></option>' + MED_BIJSTAND.map(m => `<option value="${m.code}">${m.name}</option>`).join('');
+  $('#edMedBij').value = inc.medbij || '';
+  $('#edAbc').innerHTML = '<option value=""></option>' + ABC_CODES.map(c => `<option value="${c}">${c}</option>`).join('');
+  $('#edAbc').value = inc.abc || '';
   $('#edNotes').value = inc.notes || '';
   $('#edFire').checked = false; $('#edPol').checked = false;
   renderDispatch();
@@ -721,11 +783,11 @@ function dispCandidates() {
     .filter(u => u.incidentId !== dispInc.id && !u.temp && (!only || Object.keys(need).some(k => fitsType(k, u.type))) && (!dispProvOnly || CITY_BY_ID[u.station.cityId]?.prov === prov))
     .map(u => ({ u, d: distM([u.lat, u.lng], [dispInc.lat, dispInc.lng]) }))
     .map(x => ({ ...x, eta: etaMin(x.u, x.d) }))
-    .sort((a, b) => (isFree(b.u) - isFree(a.u)) || a.eta - b.eta).slice(0, 80);
+    .sort((a, b) => dispSort === 'name' ? a.u.name.localeCompare(b.u.name) : (isFree(b.u) - isFree(a.u)) || a.eta - b.eta).slice(0, 80);
 }
 function renderDispatch() {
   if (!dispInc) return;
-  const P = PRIORITIES[dispInc.prio], need = shownNeed(dispInc), have = incStatus(dispInc);
+  const P = PRIORITIES[dispInc.prio], need = combinedNeed(dispInc), have = incStatus(dispInc, need);
   // geselecteerde voertuigen tellen mee in het voorstel
   const selCounts = {}; for (const id of dispSel) { const u = S.units.find(x => x.id === id); if (u) selCounts[u.type] = (selCounts[u.type] || 0) + 1; }
   const { all } = incCounts(dispInc), tot = { ...all }; for (const [k, n] of Object.entries(selCounts)) tot[k] = (tot[k] || 0) + n;
@@ -735,14 +797,16 @@ function renderDispatch() {
   $('#edPrio').innerHTML = Object.entries(PRIORITIES).map(([k, p]) =>
     `<button data-prio="${k}" class="${dispInc.prio == k ? 'on' : ''}" style="${dispInc.prio == k ? `background:${p.color};border-color:${p.color}` : `border-color:${p.color}`}">${p.name}</button>`).join('');
   $('#fltAll').classList.toggle('on', !dispProvOnly); $('#fltProv').classList.toggle('on', dispProvOnly);
+  $('#sortEta').classList.toggle('on', dispSort === 'eta'); $('#sortName').classList.toggle('on', dispSort === 'name');
   const assigned = S.units.filter(u => u.incidentId === dispInc.id);
   const row = (u, d, eta, cls) => {
     const VT = VEHICLE_TYPES[u.type];
     return `<div class="unit-row ${cls}" data-id="${u.id}">
-      <span class="uname2"><span class="ubtn">${esc(u.name)} <span class="st st${grounded(u) && u.status === 1 ? 'x' : u.status}">${statusCode(u)}</span></span></span>
+      <span class="uname2"><span class="ubtn">${esc(u.name)} <small class="team">(${u.team})</small> <span class="st st${grounded(u) && u.status === 1 ? 'x' : u.status}">${statusCode(u)}</span></span></span>
       <span class="utype">${VT.short}</span>
       <span class="${eta <= P.norm ? 'norm-ok' : 'norm-bad'}">${Math.round(eta)} min</span>
-      <span class="km">${(d / 1000).toFixed(1)} km</span></div>`;
+      <span class="km">${(d / 1000).toFixed(1)} km</span>
+      <span class="km">${clockStr(u.shiftEnd)}</span></div>`;
   };
   const html = assigned.map(u => { const d = distM([u.lat, u.lng], [dispInc.lat, dispInc.lng]); return row(u, d, etaMin(u, d), 'assigned'); }).join('') +
     dispCandidates().map(({ u, d, eta }) => row(u, d, eta, isFree(u) ? (dispSel.has(u.id) ? 'sel' : '') : 'busy')).join('');
@@ -756,7 +820,7 @@ function nearestFree(type, exclude) {
     .sort((a, b) => (a.u.type === type ? 0 : 1) - (b.u.type === type ? 0 : 1) || a.e - b.e)[0]?.u;
 }
 function autoSuggest() {
-  const need = shownNeed(dispInc), have = incStatus(dispInc);
+  const need = combinedNeed(dispInc), have = incStatus(dispInc, need);
   dispSel = new Set();
   for (const [k, n] of Object.entries(need)) for (let i = have[k].scene + have[k].way; i < n; i++) { const u = nearestFree(k, dispSel); if (u) dispSel.add(u.id); }
   renderDispatch();
@@ -765,6 +829,8 @@ function quickAdd(type) { const u = nearestFree(type, dispSel); if (u) { dispSel
 function saveDispatchEdits() {
   const inc = dispInc; if (!inc) return;
   inc.notes = $('#edNotes').value.trim();
+  inc.brw = $('#edBrw').value; inc.pol = $('#edPolSel').value; inc.medbij = $('#edMedBij').value; inc.abc = $('#edAbc').value;
+  const medv = $('#edMed').value; if (medv) inc.prio = +medv.split('|')[1];
   const proto = edProtoValue();
   if (proto && proto !== (inc.revealed ? inc.typeId : inc.protoId)) {
     inc.protoId = proto;
@@ -787,7 +853,7 @@ function sendSelected(withSupport) {
   if (sent.length) {
     beep(600, 0.1, 1);
     logbook(`${incNo(inc)} gealarmeerd: ${sent.join(', ')}`);
-    radio('Meldkamer', `${sent.join(', ')}: rij uit naar ${inc.addr}, ${TYPE_BY_ID[inc.revealed ? inc.typeId : inc.protoId].name.toLowerCase()}, ${PRIORITIES[inc.prio].name}.`, { me: true });
+    radio('Meldkamer', `${sent.join(', ')}: rij uit naar ${inc.addr}, ${protoLabel(TYPE_BY_ID[inc.revealed ? inc.typeId : inc.protoId])}, ${PRIORITIES[inc.prio].name}${inc.abc ? ', ' + inc.abc : ''}.`, { me: true });
   }
   if (withSupport === true) openSupport(inc);
 }
@@ -1064,6 +1130,10 @@ function renderUI() {
           <dt>Inzetplaats</dt><dd>${esc(inc.addr)}</dd>
           <dt>Protocol</dt><dd>${protoLabel(shown)}, ${P.name}</dd>
           <dt>Nodig</dt><dd>${needChips(shownNeed(inc), incStatus(inc))}</dd>
+          ${inc.brw ? `<dt>BRW</dt><dd>${esc(inc.brw + ' ' + (BRW_CODES.find(b => b.code === inc.brw)?.name || ''))}</dd>` : ''}
+          ${inc.pol ? `<dt>Politie</dt><dd>${esc(POL_EXTRA.find(p => p.code === inc.pol)?.name || (TYPE_BY_ID[inc.pol] ? protoLabel(TYPE_BY_ID[inc.pol]) : ''))}</dd>` : ''}
+          ${inc.medbij ? `<dt>Med. bijstand</dt><dd>${esc(MED_BIJSTAND.find(m => m.code === inc.medbij)?.name || '')}</dd>` : ''}
+          ${inc.abc ? `<dt>Tekst middel</dt><dd>${esc(inc.abc)}</dd>` : ''}
           <dt>Notities</dt><dd>${esc(inc.notes || '—')}</dd>
           <dt>Melding</dt><dd class="quote">${esc(inc.text || '—')}</dd>
         </dl>` : ''}
@@ -1320,7 +1390,7 @@ $('#unitDetail').onclick = e => {
 $('#unitDetail').onchange = e => {
   if (e.target.id !== 'udStatus') return;
   const u = S.units.find(x => x.id === S.selUnit); if (!u) return;
-  u.offDuty = e.target.value === 'off';
+  u.offDuty = e.target.value === 'off'; refreshStation(u.station);
   u.marker.setIcon(unitIcon(u)); renderUnits(); dirty = true;
 };
 $('#radioStatusRows').onchange = () => renderRadio();
@@ -1381,8 +1451,11 @@ $$('#dispatchModal [data-quick]').forEach(b => b.onclick = () => quickAdd(b.data
 $('#edFire').onchange = e => { if (e.target.checked) quickAdd('AP'); };
 $('#edPol').onchange = e => { if (e.target.checked) quickAdd('POL'); };
 $('#edPrio').onclick = e => { const b = e.target.closest('[data-prio]'); if (b && dispInc) { dispInc.prio = +b.dataset.prio; renderDispatch(); dirty = true; } };
-$$('.edp').forEach(el => el.onchange = () => { if (el.value) $$('.edp').forEach(o => { if (o !== el) o.value = ''; }); saveDispatchEdits(); renderDispatch(); });
+$$('.edp').forEach(el => el.onchange = () => { saveDispatchEdits(); renderDispatch(); });
+$('#edMedBij').onchange = $('#edAbc').onchange = () => { saveDispatchEdits(); renderDispatch(); };
 $('#fltAll').onclick = () => { dispProvOnly = false; renderDispatch(); };
+$('#sortEta').onclick = () => { dispSort = 'eta'; renderDispatch(); };
+$('#sortName').onclick = () => { dispSort = 'name'; renderDispatch(); };
 $('#fltProv').onclick = () => { dispProvOnly = true; renderDispatch(); };
 $('#dispCancel').onclick = $('#dispX').onclick = closeDispatch;
 $('#dispSave').onclick = () => { saveDispatchEdits(); closeDispatch(); };

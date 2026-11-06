@@ -489,3 +489,14 @@ textarea { font: inherit; background: var(--panel2); color: var(--text); border:
 .end-dl { grid-template-columns: 110px 1fr; font-size: 14px; gap: 6px 12px; }
 
 .mk-vimg.flip { transform: scaleX(-1); }
+
+.unit-head, .unit-row { grid-template-columns: 1fr 44px 62px 62px 70px; }
+.ubtn .team { font-weight: 400; color: var(--muted); text-transform: none; }
+.ed-listhead { flex-wrap: wrap; }
+@media (max-width: 760px) { .unit-row { grid-template-columns: 1fr 40px 54px; } .unit-row .km { display: none; } }
+
+/* ===== stationsspelden ===== */
+.pin { width: 20px; height: 20px; border-radius: 4px; display: flex; align-items: center; justify-content: center; color: #fff;
+  background: var(--pc); border: 1.5px solid rgba(255,255,255,.9); box-shadow: 0 1px 3px rgba(0,0,0,.5); font: 800 12px/1 var(--f-body); }
+.pin-some { background: color-mix(in srgb, var(--pc) 55%, #ffffff); color: #1d2a36; }
+.pin-none { background: #9aa3ad; color: #f4f6f8; }
