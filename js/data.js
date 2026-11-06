@@ -273,3 +273,57 @@ const FOREIGN_CENTRALES = [
   { id: 'fr-aisne', name: 'SAMU Aisne (FR)', lat: 49.564, lng: 3.620, provs: ['hen', 'nam'] },
   { id: 'fr-ardennes', name: 'SAMU Ardennes (FR)', lat: 49.762, lng: 4.726, provs: ['nam', 'lux'] },
 ];
+
+// ===== Protocolcodes en oproepvarianten =====
+// Eigen codering: M = medisch, V = verkeer, B = brand/technisch, P = politie
+{
+  const pre = { med: 'M', verkeer: 'V', brand: 'B', politie: 'P' }, cnt = {};
+  for (const t of INCIDENT_TYPES) { cnt[t.cat] = (cnt[t.cat] || 0) + 1; t.code = pre[t.cat] + String(cnt[t.cat]).padStart(2, '0'); }
+}
+const protoLabel = t => `${t.code} ${t.name}`;
+
+const SEVERITIES = [
+  { id: 'licht', label: 'stabiel', delta: 1, add: 'Het lijkt niet levensbedreigend, maar ik maak me wel zorgen.' },
+  { id: 'matig', label: 'dringend', delta: 0, add: '' },
+  { id: 'ernstig', label: 'kritiek', delta: -1, add: 'Het gaat echt heel slecht, kom alstublieft snel!' },
+];
+const PATIENTS = [
+  { id: 'baby', txt: 'Het gaat om een baby van een paar maanden.' },
+  { id: 'kind', txt: 'Het gaat om een kind van ongeveer acht jaar.' },
+  { id: 'tiener', txt: 'Het gaat om een jongere van een jaar of zestien.' },
+  { id: 'volw', txt: 'Het gaat om een volwassene van rond de veertig.' },
+  { id: 'oud', txt: 'Het gaat om iemand van in de tachtig.' },
+];
+const LOCATIONS = [
+  { id: 'thuis', pre: '' }, { id: 'straat', pre: '' }, { id: 'werk', pre: 'Bedrijf ' }, { id: 'school', pre: 'Basisschool ' },
+  { id: 'wzc', pre: 'Woonzorgcentrum ' }, { id: 'sport', pre: 'Sportcomplex ' }, { id: 'station', pre: 'Station ' },
+  { id: 'winkel', pre: 'Supermarkt ' }, { id: 'cafe', pre: 'Café ' }, { id: 'park', pre: 'Stadspark ' },
+];
+const LOC_NAMES = ['De Linde', 'Ter Beke', 'Sint-Jozef', 'Het Anker', 'De Zon', 'Ter Duinen', 'De Vlier', 'Hof ter Weyden', 'De Molen', 'Zonnebloem'];
+const CALLERS = [
+  { id: 'zelf', pre: '' }, { id: 'partner', pre: 'Ik bel voor mijn partner. ' }, { id: 'kind', pre: 'Ik bel voor mijn moeder. ' },
+  { id: 'ouder', pre: 'Ik bel voor mijn kind. ' }, { id: 'buur', pre: 'Ik ben de buurvrouw. ' }, { id: 'passant', pre: 'Ik kom hier toevallig voorbij. ' },
+  { id: 'collega', pre: 'Ik bel voor een collega. ' }, { id: 'zorg', pre: 'Ik ben verpleegkundige hier. ' },
+];
+// welke varianten bij welke categorie horen
+const VARIANT_SETS = {
+  med: { pat: PATIENTS, loc: LOCATIONS, call: CALLERS },
+  verkeer: { pat: PATIENTS.slice(1), loc: [{ id: 'straat', pre: '' }, { id: 'snelweg', pre: '' }, { id: 'kruispunt', pre: '' }, { id: 'parking', pre: 'Parking ' }], call: CALLERS.filter(c => ['zelf', 'passant', 'partner', 'collega'].includes(c.id)) },
+  brand: { pat: [{ id: '-', txt: '' }], loc: LOCATIONS.filter(l => ['thuis', 'straat', 'werk', 'school', 'wzc', 'winkel', 'cafe', 'park'].includes(l.id)), call: CALLERS.filter(c => ['zelf', 'buur', 'passant', 'collega', 'zorg'].includes(c.id)) },
+  politie: { pat: [{ id: '-', txt: '' }], loc: LOCATIONS.filter(l => ['thuis', 'straat', 'winkel', 'cafe', 'station', 'park'].includes(l.id)), call: CALLERS.filter(c => ['zelf', 'buur', 'passant', 'collega'].includes(c.id)) },
+};
+function variantCount() {
+  let n = 0;
+  for (const t of INCIDENT_TYPES) { const v = VARIANT_SETS[t.cat]; n += SEVERITIES.length * v.pat.length * v.loc.length * v.call.length * t.calls.length; }
+  return n;
+}
+// benodigde middelen aanpassen aan de ernst
+function needForVariant(t, prio) {
+  const need = { ...t.need };
+  if (t.cat === 'med' || t.cat === 'verkeer') {
+    if (prio === 1 && !need.MUG && !need.PIT) need.PIT = 1;
+    if (prio === 3) { delete need.MUG; delete need.PIT; if (!need.AMB && !Object.keys(need).length) need.AMB = 1; }
+  }
+  if (!Object.keys(need).length) Object.assign(need, t.need);
+  return need;
+}

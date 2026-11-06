@@ -278,14 +278,14 @@ function incCounts(inc) {
   }
   return { scene, all };
 }
-const shownNeed = inc => (inc.revealed ? TYPE_BY_ID[inc.typeId] : TYPE_BY_ID[inc.protoId]).need;
+const shownNeed = inc => inc.revealed ? (inc.trueNeed || TYPE_BY_ID[inc.typeId].need) : TYPE_BY_ID[inc.protoId].need;
 function incStatus(inc, need = shownNeed(inc)) {
   const { scene, all } = incCounts(inc), cs = allocate(need, scene), ca = allocate(need, all), h = {};
   for (const k of Object.keys(need)) h[k] = { scene: cs[k], way: ca[k] - cs[k] };
   return h;
 }
 function needsMet(inc) {
-  const need = TYPE_BY_ID[inc.typeId].need, h = incStatus(inc, need);
+  const need = inc.trueNeed || TYPE_BY_ID[inc.typeId].need, h = incStatus(inc, need);
   return Object.entries(need).every(([k, n]) => h[k].scene >= n);
 }
 function missingList(inc, need) {
@@ -320,11 +320,19 @@ function spawnCall() {
   for (let i = 0; i < S.cities.length; i++) { rc -= cw[i]; if (rc <= 0) { city = CITY_BY_ID[S.cities[i]]; break; } }
   const spread = 0.8 + city.size * 0.7;
   const [lat, lng] = offsetKm(city.lat, city.lng, gauss() * spread, gauss() * spread);
+  const V = VARIANT_SETS[type.cat], sev = pick(SEVERITIES), pat = pick(V.pat), loc = pick(V.loc), caller = pick(V.call);
+  const truePrio = Math.min(3, Math.max(1, type.prio + sev.delta));
+  const street = `${pick(STREETS)} ${Math.floor(rnd(1, 180))}`, cname = city.name.split(' (')[0];
+  const place = loc.pre ? `${loc.pre}${pick(LOC_NAMES)}, ${street}` : loc.id === 'snelweg' ? `E${pick([17, 40, 403, 34, 19, 313])} ter hoogte van ${cname}` : street;
+  const facts = { ...type.facts };
+  if (pat.txt) facts.personen = pat.txt;
+  if (sev.id === 'ernstig' && facts.bewust === 'ja') facts.bewust = 'half';
+  if (sev.id === 'licht' && facts.adem === 'moeilijk') facts.adem = 'ja';
   const call = {
     id: S.nextId++, typeId: type.id, lat, lng, cityId: city.id, created: S.time, answered: false, asked: [], convo: [],
-    addr: `${pick(STREETS)} ${Math.floor(rnd(1, 180))}, ${city.name.split(' (')[0]}`,
-    text: pick(type.calls), fake: Math.random() < 0.06, voiceSeed: Math.floor(Math.random() * 100),
-    protoId: '', prio: 0,
+    addr: `${place}, ${cname}`,
+    text: `${caller.pre}${pick(type.calls)}${sev.add ? ' ' + sev.add : ''}`, fake: Math.random() < 0.06, voiceSeed: Math.floor(Math.random() * 100),
+    protoId: '', prio: 0, truePrio, trueNeed: needForVariant(type, truePrio), facts, sev: sev.id,
   };
   if (call.fake) call.text = pick(['Hallo? Ja… euh, sorry, verkeerd nummer.', 'Hihi… *gegiechel op de achtergrond*', 'Is dit de pizzeria? Ik wil iets bestellen.', 'Ik wou gewoon eens testen of dit nummer werkt.']);
   S.calls.push(call);
@@ -346,7 +354,7 @@ function openCall(id) {
   // protocollen
   const opts = ['<option value="">— kies een protocol —</option>'];
   for (const [cat, label] of Object.entries(CATEGORIES)) {
-    opts.push(`<optgroup label="${label}">` + INCIDENT_TYPES.filter(t => t.cat === cat).map(t => `<option value="${t.id}">${t.icon} ${t.name}</option>`).join('') + '</optgroup>');
+    opts.push(`<optgroup label="${label}">` + INCIDENT_TYPES.filter(t => t.cat === cat).map(t => `<option value="${t.id}">${protoLabel(t)}</option>`).join('') + '</optgroup>');
   }
   $('#callProto').innerHTML = opts.join('');
   $('#callProto').value = c.protoId;
@@ -376,8 +384,8 @@ function askQuestion(qid) {
   if (c.fake) a = pick(['Euh… dat weet ik niet.', 'Waarom wil je dat weten?', 'Hihi, niks aan de hand hoor.', '…']);
   else if (qid === 'adres') a = `${c.addr}.`;
   else if (qid === 'wat') a = `${T.calls.find(x => x !== c.text) || c.text} Het gaat om: ${T.name.toLowerCase()}.`;
-  else if (qid === 'personen') a = T.facts.personen;
-  else a = ANSWERS[qid][T.facts[qid]] || 'Dat weet ik niet.';
+  else if (qid === 'personen') a = (c.facts || T.facts).personen;
+  else a = ANSWERS[qid][(c.facts || T.facts)[qid]] || 'Dat weet ik niet.';
   addConvo(c, 'caller', a);
   speak(a, 'caller', c.voiceSeed);
   renderCall();
@@ -398,7 +406,7 @@ function acceptCall() {
   const T = TYPE_BY_ID[c.typeId];
   let bonus = 0;
   if (c.protoId === c.typeId) bonus += 15;
-  if (+c.prio === T.prio) bonus += 5;
+  if (+c.prio === (c.truePrio || T.prio)) bonus += 8;
   bonus += Math.max(0, 6 - c.asked.length); // efficiënt gesprek
   addXp(bonus);
   createIncident(c);
@@ -420,10 +428,11 @@ function transferCall(c = currentCall) {
 // ---------- Incidenten ----------
 function createIncident(c) {
   const T = TYPE_BY_ID[c.typeId], P = TYPE_BY_ID[c.protoId];
-  const nUnits = Object.values(T.need).reduce((a, b) => a + b, 0);
+  const trueNeed = c.trueNeed || T.need;
+  const nUnits = Object.values(trueNeed).reduce((a, b) => a + b, 0);
   const inc = { no: ++S.incNo, id: c.id, typeId: T.id, protoId: P.id, prio: +c.prio, lat: c.lat, lng: c.lng, addr: c.addr, cityId: c.cityId,
     created: S.time, patience: 240 + nUnits * 30, waited: 0, progress: 0, state: 'open', revealed: c.protoId === c.typeId, arrived: false,
-    text: c.text || '', notes: c.notes || '' };
+    text: c.text || '', notes: c.notes || '', trueNeed, truePrio: c.truePrio || T.prio };
   { const d = currentDate(); inc.rit = `${String(d.getFullYear()).slice(2)}${p2(d.getMonth() + 1)}${p2(d.getDate())}${String(inc.no).padStart(5, '0')}`; }
   inc.marker = L.marker([inc.lat, inc.lng], {
     icon: L.divIcon({ className: '', html: `<div class="mk mk-inc">${P.icon}</div>`, iconSize: [32, 32], iconAnchor: [16, 16] }),
@@ -431,7 +440,7 @@ function createIncident(c) {
   }).bindTooltip(() => `${TYPE_BY_ID[inc.revealed ? inc.typeId : inc.protoId].name} · ${esc(inc.addr)}`).addTo(layers.incidents);
   inc.marker.on('click', () => openDispatch(inc.id));
   S.incidents.push(inc);
-  logbook(`${incNo(inc)} aangemaakt: ${P.name}, ${PRIORITIES[inc.prio].name}, ${inc.addr}`);
+  logbook(`${incNo(inc)} aangemaakt: ${protoLabel(P)}, ${PRIORITIES[inc.prio].name}, ${inc.addr}`);
   dirty = true;
   if (!c.silent) openDispatch(inc.id);
   return inc;
@@ -551,7 +560,7 @@ function openDispatch(id) {
   $('#edPlace').textContent = `${inc.addr} (${PROVINCES.find(p => p.id === CITY_BY_ID[inc.cityId].prov).name})`;
   const cur = inc.revealed ? inc.typeId : inc.protoId;
   for (const [sel, cats, pre] of ED_SELECTS) {
-    $(sel).innerHTML = '<option value=""></option>' + INCIDENT_TYPES.filter(t => cats.includes(t.cat)).map(t => `<option value="${t.id}">${pre}, ${t.name}</option>`).join('');
+    $(sel).innerHTML = '<option value=""></option>' + INCIDENT_TYPES.filter(t => cats.includes(t.cat)).map(t => `<option value="${t.id}">${pre}, ${protoLabel(t)}</option>`).join('');
     $(sel).value = cats.includes(TYPE_BY_ID[cur].cat) ? cur : '';
   }
   $('#edNotes').value = inc.notes || '';
@@ -666,7 +675,7 @@ function arriveOnScene(u, inc) {
   let text = `ter plaatse ${inc.addr.split(',')[0]}.`;
   if (!inc.arrived) {
     inc.arrived = true;
-    const T = TYPE_BY_ID[inc.typeId], mins = realMin(S.time - inc.created), norm = PRIORITIES[T.prio].norm;
+    const T = TYPE_BY_ID[inc.typeId], mins = realMin(S.time - inc.created), norm = PRIORITIES[inc.truePrio || T.prio].norm;
     S.normTotal++; if (mins <= norm) S.normHit++; else log(`⏱️ Aanrijnorm overschreden: ${Math.round(mins)} min (norm ${norm} min)`, '#f59e0b');
     if (!inc.revealed) {
       inc.revealed = true;
@@ -674,7 +683,7 @@ function arriveOnScene(u, inc) {
       text += ` De situatie blijkt een ${T.name.toLowerCase()} te zijn.`;
       addXp(-10);
     }
-    const miss = missingList(inc, T.need);
+    const miss = missingList(inc, inc.trueNeed || T.need);
     if (miss.length) text += ` Vragen bijkomend: ${miss.join(', ')}.`;
     else text += ' Middelen volstaan, we starten de interventie.';
   }
@@ -892,7 +901,7 @@ function renderUI() {
     const open = S.expanded === inc.id;
     const chipsU = us.map(u => `<span class="uchip"><span class="st st${u.status}">${u.status}</span> ${esc(u.name)}</span>`).join('');
     return `<div class="card ${open ? 'open' : ''}" data-inc="${inc.id}"><div class="row"><span class="inc-no">${incNo(inc)}</span><span class="inc-time">${fmtTime(mins * 60)}</span></div>
-      <div class="title">${shown.name}, <span style="color:${P.color}">${P.name}</span></div>
+      <div class="title">${protoLabel(shown)}, <span style="color:${P.color}">${P.name}</span></div>
       <div class="sub">${esc(inc.addr)} ${inc.arrived ? '' : `· <span class="${mins <= P.norm ? 'norm-ok' : 'norm-bad'}">${Math.floor(mins)}/${P.norm} min</span>`}</div>
       <div class="chips">${chipsU || '<span class="chip miss">geen voertuigen</span>'}</div>
       ${open ? `<div class="acts">
@@ -903,7 +912,7 @@ function renderUI() {
         <dl class="dl">
           <dt>Ritnummer</dt><dd>${inc.rit}</dd>
           <dt>Inzetplaats</dt><dd>${esc(inc.addr)}</dd>
-          <dt>Protocol</dt><dd>${shown.name}, ${P.name}</dd>
+          <dt>Protocol</dt><dd>${protoLabel(shown)}, ${P.name}</dd>
           <dt>Nodig</dt><dd>${needChips(shownNeed(inc), incStatus(inc))}</dd>
           <dt>Notities</dt><dd>${esc(inc.notes || '—')}</dd>
           <dt>Melding</dt><dd class="quote">${esc(inc.text || '—')}</dd>
@@ -1033,7 +1042,7 @@ function renderRegionTree(filter = '') {
 function fillHomeStats() {
   const nC = Object.keys(CITY_BY_ID).length;
   $('#stPosts').textContent = (nC * 3).toLocaleString('nl-BE');
-  $('#stHosp').textContent = nC; $('#stProto').textContent = INCIDENT_TYPES.length; $('#stCities').textContent = nC;
+  $('#stHosp').textContent = nC; $('#stProto').textContent = variantCount().toLocaleString('nl-BE'); $('#stCities').textContent = nC;
 }
 function showGame() {
   hide('#home'); show('#game'); window.scrollTo(0, 0);
