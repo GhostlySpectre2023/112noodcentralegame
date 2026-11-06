@@ -142,6 +142,8 @@
         <button id="btnTheme" class="iconbtn" title="Licht/donker thema">☀️</button>
         <button id="btnVoice" class="iconbtn" title="Stemmen aan/uit">🗣️</button>
         <button id="btnSound" class="iconbtn" title="Geluid aan/uit">🔊</button>
+        <span id="aiBadge" class="pill ai-badge" title="Hoe de bellers antwoorden">Tekstmodus</span>
+        <button id="btnSettings" class="iconbtn" title="Instellingen: AI-bellers en stemmen">⚙️</button>
         <button id="btnEndShift" class="iconbtn" title="Dienst afsluiten">⏻</button>
         <button id="btnRegion" class="iconbtn" title="Terug naar het menu (dienst pauzeert)">☰</button>
       </div>
@@ -237,6 +239,13 @@
       <div class="call-cols">
         <div class="call-left">
           <div id="convo" class="convo"></div>
+          <div id="callTyping" class="typing hidden">De beller antwoordt…</div>
+          <div class="talk-row">
+            <input id="callInput" type="text" placeholder="Typ wat je tegen de beller zegt en druk op Enter…" autocomplete="off">
+            <button id="callSend" class="btn small">Zeg</button>
+            <button id="callMic" class="btn small mic" title="Houd ingedrukt en spreek (of houd T ingedrukt)">🎙️ Spreek</button>
+          </div>
+          <div class="muted small">Snelle vragen:</div>
           <div id="questions" class="questions"></div>
         </div>
         <div class="call-right">
@@ -333,6 +342,32 @@
     </div>
   </div>
 
+  <!-- Instellingen -->
+  <div id="settingsModal" class="modal hidden">
+    <div class="modal-box">
+      <div class="call-head">Instellingen: bellers en stemmen <button class="x" id="setX" aria-label="Sluiten">✕</button></div>
+      <div class="call-body settings">
+        <p class="muted small">Zonder sleutels antwoorden bellers op sleutelwoorden in je vraag (gratis). Met je eigen API-sleutels speelt Claude de beller en antwoordt die vrij op alles wat je vraagt. Je sleutels blijven alleen in deze browser en gaan rechtstreeks naar Anthropic en OpenAI. Ze komen nooit op GitHub of op een andere server.</p>
+        <label class="chk"><input type="checkbox" id="setAi"> AI-bellers gebruiken (Claude)</label>
+        <label>Claude API-sleutel <input id="setAnthKey" type="password" placeholder="sk-ant-…" autocomplete="off"></label>
+        <label>Model <select id="setModel"></select></label>
+        <div class="set-row"><button id="setTest" class="btn small">Test Claude-verbinding</button> <span id="setTestOut" class="muted small"></span></div>
+        <label>Stem van de bellers
+          <select id="setVoice"><option value="browser">Browserstem (gratis)</option><option value="openai">OpenAI-stemmen (eigen sleutel)</option></select>
+        </label>
+        <label>OpenAI API-sleutel <input id="setOaKey" type="password" placeholder="sk-…" autocomplete="off"></label>
+        <label class="chk"><input type="checkbox" id="setOaCrew"> Ook de ploegen op de radio met een OpenAI-stem</label>
+        <p id="setUsage" class="muted small"></p>
+      </div>
+      <div class="modal-foot">
+        <button id="setSave" class="btn primary">Opslaan</button>
+        <button id="setCancel" class="btn">Annuleren</button>
+        <span class="spacer"></span>
+        <button id="setClear" class="btn danger">Sleutels wissen</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Dienst afsluiten -->
   <div id="endModal" class="modal hidden">
     <div class="modal-box">
@@ -368,5 +403,6 @@
   <script src="js/data.js"></script>
   <script src="js/vehicles.js"></script>
   <script src="js/game.js"></script>
+  <script src="js/caller.js"></script>
 </body>
 </html>

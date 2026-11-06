@@ -500,3 +500,14 @@ textarea { font: inherit; background: var(--panel2); color: var(--text); border:
   background: var(--pc); border: 1.5px solid rgba(255,255,255,.9); box-shadow: 0 1px 3px rgba(0,0,0,.5); font: 800 12px/1 var(--f-body); }
 .pin-some { background: color-mix(in srgb, var(--pc) 55%, #ffffff); color: #1d2a36; }
 .pin-none { background: #9aa3ad; color: #f4f6f8; }
+
+/* ===== praten met de beller ===== */
+.talk-row { display: flex; gap: 6px; margin: 8px 0 6px; }
+.talk-row input { flex: 1; min-width: 0; }
+.mic.live { background: var(--bad); border-color: var(--bad); color: #fff; }
+.typing { font-size: 12px; color: var(--muted); font-style: italic; margin-top: 4px; }
+.ai-badge { font-weight: 600; }
+.ai-badge.on { background: color-mix(in srgb, var(--ok) 25%, var(--panel2)); border-color: var(--ok); }
+.settings { display: flex; flex-direction: column; gap: 10px; }
+.settings label input[type=password], .settings label select { display: block; width: 100%; margin-top: 4px; }
+.set-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }

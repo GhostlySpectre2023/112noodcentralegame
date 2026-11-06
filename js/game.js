@@ -547,7 +547,7 @@ function openCall(id) {
     c.answered = true; c.answeredAt = S.time; logbook('Nieuwe telefoonoproep.', 'sys');
     addConvo(c, 'me', '112, wat is uw noodgeval?');
     addConvo(c, 'caller', c.text);
-    speak(c.text, 'caller', c.voiceSeed);
+    speakCaller(c.text, c.voiceSeed, c.sev);
   }
   $('#callTitle').textContent = `Oproep 112 · regio ${CITY_BY_ID[c.cityId].name}`;
   // protocollen
@@ -574,19 +574,24 @@ function renderCall() {
   $('#callAccept').disabled = !(c.protoId && c.prio && c.asked.includes('adres'));
   $('#callAccept').title = $('#callAccept').disabled ? 'Vraag het adres en kies protocol en dringendheid' : '';
 }
+function answerFor(c, qid) {
+  const T = TYPE_BY_ID[c.typeId];
+  if (c.fake) return pick(['Euh… dat weet ik niet.', 'Waarom wil je dat weten?', 'Hihi, niks aan de hand hoor.', '…']);
+  if (qid === 'adres') return `${c.addr}.`;
+  if (qid === 'wat') return `${T.calls.find(x => x !== c.text) || c.text}`;
+  if (qid === 'personen') return (c.facts || T.facts).personen;
+  return ANSWERS[qid][(c.facts || T.facts)[qid]] || 'Dat weet ik niet.';
+}
 function askQuestion(qid) {
   const c = currentCall; if (!c || c.asked.includes(qid)) return;
-  const Q = QUESTIONS.find(q => q.id === qid), T = TYPE_BY_ID[c.typeId];
+  const Q = QUESTIONS.find(q => q.id === qid);
+  // in de AI-modus gaat ook een snelle vraag naar de AI-beller
+  if (typeof aiReady === 'function' && aiReady()) { c.asked.push(qid); talkToCaller(Q.q); return; }
   c.asked.push(qid);
   addConvo(c, 'me', Q.q);
-  let a;
-  if (c.fake) a = pick(['Euh… dat weet ik niet.', 'Waarom wil je dat weten?', 'Hihi, niks aan de hand hoor.', '…']);
-  else if (qid === 'adres') a = `${c.addr}.`;
-  else if (qid === 'wat') a = `${T.calls.find(x => x !== c.text) || c.text} Het gaat om: ${T.name.toLowerCase()}.`;
-  else if (qid === 'personen') a = (c.facts || T.facts).personen;
-  else a = ANSWERS[qid][(c.facts || T.facts)[qid]] || 'Dat weet ik niet.';
+  const a = answerFor(c, qid);
   addConvo(c, 'caller', a);
-  speak(a, 'caller', c.voiceSeed);
+  speakCaller(a, c.voiceSeed, c.sev);
   renderCall();
 }
 function needChips(need, have) {
@@ -597,7 +602,7 @@ function needChips(need, have) {
     return `<span class="chip ${cls}" title="${VEHICLE_TYPES[k].name}">${txt} ${VEHICLE_TYPES[k].short}</span>`;
   }).join(' ');
 }
-function closeCall(c) { logbook('*klik*', 'sys'); S.calls = S.calls.filter(x => x !== c); hide('#callModal'); currentCall = null; if (window.speechSynthesis) speechSynthesis.cancel(); dirty = true; }
+function closeCall(c) { logbook('*klik*', 'sys'); S.calls = S.calls.filter(x => x !== c); hide('#callModal'); currentCall = null; stopVoices(); dirty = true; }
 function acceptCall() {
   const c = currentCall; if (!c || $('#callAccept').disabled) return;
   closeCall(c);
@@ -652,7 +657,7 @@ function radio(from, text, opts = {}) {
   const m = { id: S.nextId++, t: clockLong(), from, text, kind: opts.kind || 'info', open: !!opts.ack || opts.kind === 'transport',
     unitId: opts.unitId, created: S.time, me: !!opts.me };
   S.radio.unshift(m); if (S.radio.length > 120) S.radio.pop();
-  if (!m.me) { beep(1400, 0.05, 1, 0.025); speak(`${from}: ${text}`, 'radio', opts.unitId || 0); }
+  if (!m.me) { beep(1400, 0.05, 1, 0.025); speakCrew(`${from}: ${text}`, opts.unitId || 0); }
   dirty = true; radioDirty = true;
   return m;
 }
@@ -667,13 +672,9 @@ function ackRadio(m, viaVoice) {
 }
 function handleVoice(txt) {
   const t = txt.toLowerCase();
-  radio('Meldkamer', txt, { me: true });
-  // tijdens een oproep: vragen herkennen
-  if (currentCall && !$('#callModal').classList.contains('hidden')) {
-    const map2 = { adres: /adres|waar|straat/, wat: /gebeurd|wat is er|wat scheelt/, bewust: /bewust|wakker|reageert/, adem: /adem/, personen: /hoeveel|personen|gewonden/, gevaar: /brand|rook|gevaar|gas/ };
-    for (const [q, re] of Object.entries(map2)) if (re.test(t)) askQuestion(q);
-    return;
-  }
+  if (!(currentCall && !$('#callModal').classList.contains('hidden'))) radio('Meldkamer', txt, { me: true });
+  // tijdens een oproep: vrij praten met de beller
+  if (currentCall && !$('#callModal').classList.contains('hidden')) { talkToCaller(txt); return; }
   // transportvraag: ziekenhuis kiezen
   const tr = S.radio.find(m => m.open && m.kind === 'transport');
   if (tr) {
@@ -1540,7 +1541,7 @@ $('#startGame').onclick = async () => {
 };
 document.addEventListener('keydown', e => {
   const typing = /INPUT|SELECT|TEXTAREA/.test(e.target.tagName);
-  if (e.key === 'Escape') { ['#callModal', '#dispatchModal', '#buildModal', '#hospModal', '#supportModal'].forEach(hide); dispInc = null; hospUnit = null; stopBuild(); currentCall = null; }
+  if (e.key === 'Escape') { ['#callModal', '#dispatchModal', '#buildModal', '#hospModal', '#supportModal', '#settingsModal'].forEach(hide); dispInc = null; hospUnit = null; stopBuild(); currentCall = null; }
   if (typing) return;
   if (e.code === 'KeyT' && !e.repeat) pttStart();
   if (e.key === ' ') { e.preventDefault(); setSpeed(S.speed ? 0 : 1); }
