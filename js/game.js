@@ -51,6 +51,7 @@ function save() {
       'customStations', 'sound', 'voice', 'player', 'day', 'start', 'theme', 'consent']) o[k] = S[k];
     localStorage.setItem(SAVE_KEY, JSON.stringify(o));
   } catch (e) { /* negeren */ }
+  if (typeof accountSync === 'function') accountSync();
 }
 
 // ---------- Helpers ----------
@@ -310,7 +311,7 @@ function addUnit(st, type, temp = false) {
   const VT = VEHICLE_TYPES[type];
   const u = {
     id: S.nextId++, type, stationId: st.id, status: 1, lat: st.lat, lng: st.lng, incidentId: null, move: null, temp,
-    name: temp ? `${unitPrefix(type, st.cityId)} Buurcentrale ${st.unitCount[type]}` : type === 'HELI' ? `HELI ${city ? city.name.split(' ')[0] : st.name}` : `${unitPrefix(type, st.cityId)} ${city ? city.name.split(' ')[0] : st.name} ${st.unitCount[type]}`,
+    name: temp ? `${unitPrefix(type, st.cityId)} Buurcentrale ${st.unitCount[type]}` : type === 'HELI' ? `HELI ${city ? city.name.split(' ')[0] : st.name}` : `${unitPrefix(type, st.cityId)} ${st.real && st.name ? (shortStationName(st.name) || city?.name.split(' ')[0]) : (city ? city.name.split(' ')[0] : st.name)} ${st.unitCount[type]}`,
   };
   u.station = st;
   { const cc = (city ? city.name : st.name).replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase();
@@ -351,22 +352,41 @@ const isFree = u => (u.status === 1 || u.status === 5) && !grounded(u) && !u.off
 const statusCode = u => (u.offDuty || grounded(u)) && u.status === 1 ? '–' : u.status;
 
 // ---------- Echte posten (OpenStreetMap / Overpass) ----------
+const OVERPASS_MIRRORS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+];
+async function overpassFetch(q) {
+  let lastErr;
+  for (const url of OVERPASS_MIRRORS) {
+    const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 25000);
+    try {
+      const r = await fetch(url, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, signal: ctrl.signal });
+      if (!r.ok) throw new Error(`${url} ${r.status}`);
+      const j = await r.json();
+      if (!Array.isArray(j.elements)) throw new Error('leeg antwoord');
+      return j;
+    } catch (e) { lastErr = e; } finally { clearTimeout(to); }
+  }
+  throw lastErr || new Error('Overpass niet bereikbaar');
+}
 async function fetchRealPosts(bbox) {
+  if (window.CONFIG?.server) {
+    try { const r = await fetch('/api/posts?bbox=' + bbox.map(x => x.toFixed(3)).join(',')); if (r.ok) return await r.json(); } catch (e) { /* val terug */ }
+  }
   const key = 'mk112_posts_' + bbox.map(x => x.toFixed(2)).join('_');
   try { const c = JSON.parse(localStorage.getItem(key) || 'null'); if (c && Date.now() - c.t < 7 * 864e5) return c.d; } catch (e) { /* */ }
   const bb = `${bbox[0]},${bbox[1]},${bbox[2]},${bbox[3]}`;
   const q = `[out:json][timeout:25];(nwr["amenity"="fire_station"](${bb});nwr["amenity"="police"](${bb});nwr["amenity"="hospital"]["emergency"="yes"](${bb});nwr["emergency"="ambulance_station"](${bb}););out center tags;`;
-  const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 20000);
-  const r = await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', body: 'data=' + encodeURIComponent(q),
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, signal: ctrl.signal });
-  clearTimeout(to);
-  const j = await r.json();
+  const j = await overpassFetch(q);
   const d = (j.elements || []).map(e => {
     const t = e.tags || {};
     const kind = t.amenity === 'fire_station' ? 'fire' : t.amenity === 'police' ? 'pol' : t.amenity === 'hospital' ? 'hosp' : 'med';
     return { lat: e.lat ?? e.center?.lat, lng: e.lon ?? e.center?.lon, name: t.name || t['name:nl'] || '', kind };
   }).filter(x => x.lat && x.lng);
-  try { localStorage.setItem(key, JSON.stringify({ t: Date.now(), d })); } catch (e) { /* */ }
+  if (d.length) try { localStorage.setItem(key, JSON.stringify({ t: Date.now(), d })); } catch (e) { /* */ }
   return d;
 }
 function moveStation(st, lat, lng, name) {
@@ -380,32 +400,93 @@ function moveStation(st, lat, lng, name) {
   }
   for (const u of S.units) if (u.station === st && u.status === 1 && !u.move) { u.lat = lat; u.lng = lng; u.marker.setLatLng([lat, lng]); }
 }
-async function snapStationsToReal() {
-  if (!S.cities.length) return 0;
-  const lats = S.cities.map(id => CITY_BY_ID[id].lat), lngs = S.cities.map(id => CITY_BY_ID[id].lng);
-  const bbox = [Math.min(...lats) - 0.15, Math.min(...lngs) - 0.2, Math.max(...lats) + 0.15, Math.max(...lngs) + 0.2];
-  let posts;
-  try { posts = await Promise.race([fetchRealPosts(bbox), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 22000))]); }
-  catch (e) { log('Echte posten konden niet geladen worden. De posten staan op een geschatte plek.', '#f59e0b'); return 0; }
-  let moved = 0;
+const REAL_FLEET = { fire: ['AP', 'TW'], pol: ['POL', 'POL'], hosp: ['MUG'], med: ['AMB', 'AMB'] };
+function realStationName(kind, name, city) {
+  const cn = city ? city.name.split(' (')[0] : '';
+  if (!name) return `${STATION_TYPES[kind].name} ${cn}`;
+  if (kind === 'fire') return /brandweer|post|kazerne|caserne|pompiers|hulpverlening|zone/i.test(name) ? name : `Brandweerpost ${name}`;
+  if (kind === 'pol') return /politie|police|commissariaat|zone/i.test(name) ? name : `Politie ${name}`;
+  return name;
+}
+function shortStationName(name) {
+  return (name || '').replace(/^(Brandweer(post|kazerne)?|Kazerne|Post|Politie(zone|kantoor|post)?|Commissariaat|Ambulancepost|Hulpverleningszone|Zone)\s+/i, '')
+    .split(/[,(]| - /)[0].trim().slice(0, 22);
+}
+function removeStation(st) {
+  const busy = S.units.some(u => u.station === st && (u.status !== 1 || u.move || u.incidentId || u.awaitHosp || u.atHospital));
+  if (busy) return false;
+  for (const u of S.units.filter(x => x.station === st)) { layers.units.removeLayer(u.marker); if (u.line) layers.routes.removeLayer(u.line); }
+  S.units = S.units.filter(u => u.station !== st);
+  (st.type === 'hosp' ? layers.hospitals : layers.stations).removeLayer(st.marker);
+  S.stations = S.stations.filter(x => x !== st);
+  return true;
+}
+function nearestHospital(pt) {
+  let best = null, bd = Infinity;
+  for (const h of hospitals()) { const d = distM(pt, [h.lat, h.lng]); if (d < bd) { bd = d; best = h; } }
+  return best;
+}
+function applyRealPosts(posts) {
+  // alleen echte posten in de buurt van de gekozen steden
+  const inRegion = p => S.cities.some(id => { const c = CITY_BY_ID[id]; return distM([c.lat, c.lng], [p.lat, p.lng]) < 5000 + c.size * 2500; });
+  const real = posts.filter(inRegion), stats = {};
   for (const kind of ['fire', 'pol', 'hosp', 'med']) {
-    const pool = posts.filter(p => p.kind === kind), used = new Set();
-    const sts = S.stations.filter(s => s.type === kind && !/^c\d/.test(s.id));
-    // eerst de grootste steden, zodat die hun eigen post krijgen
-    sts.sort((a, b) => (CITY_BY_ID[b.cityId]?.size || 0) - (CITY_BY_ID[a.cityId]?.size || 0));
+    const pool = real.filter(p => p.kind === kind), used = new Set();
+    // a. bestaande posten naar de dichtstbijzijnde echte post
+    const sts = S.stations.filter(x => x.type === kind && !/^c\d/.test(x.id) && !x.real)
+      .sort((a, b) => (CITY_BY_ID[b.cityId]?.size || 0) - (CITY_BY_ID[a.cityId]?.size || 0));
     for (const st of sts) {
       const c = CITY_BY_ID[st.cityId]; if (!c) continue;
       let best = -1, bd = kind === 'med' ? 9000 : 12000;
       pool.forEach((p, i) => { if (used.has(i)) return; const d = distM([c.lat, c.lng], [p.lat, p.lng]); if (d < bd) { bd = d; best = i; } });
       if (best < 0) continue;
       used.add(best); const p = pool[best];
-      const nm = p.name ? (kind === 'hosp' ? p.name : kind === 'fire' ? (/brandweer|post|kazerne|caserne|pompiers/i.test(p.name) ? p.name : `Brandweerpost ${p.name}`) : kind === 'pol' ? (/politie|police/i.test(p.name) ? p.name : `Politie ${p.name}`) : p.name) : '';
-      moveStation(st, p.lat, p.lng, nm); moved++;
+      st.real = true; moveStation(st, p.lat, p.lng, realStationName(kind, p.name, c));
     }
+    // b. de overige echte posten toevoegen
+    pool.forEach((p, i) => {
+      if (used.has(i)) return;
+      const id = `osm-${kind}-${p.lat.toFixed(4)}_${p.lng.toFixed(4)}`;
+      if (S.stations.some(x => x.id === id)) return;
+      const city = nearestCity([p.lat, p.lng]);
+      const st = { id, type: kind, name: realStationName(kind, p.name, city), lat: p.lat, lng: p.lng, cityId: city.id, real: true };
+      addStation(st, REAL_FLEET[kind]);
+      if (kind === 'hosp') { st.specs = /UZ|universit|CHU|AZ |ZNA|GZA/i.test(p.name) ? ['cathlab', 'stroke'] : []; st.load = rnd(0.2, 0.7); moveStation(st, st.lat, st.lng, st.name); }
+      used.add(i);
+    });
+    // c. gegenereerde posten zonder echte tegenhanger
+    for (const st of S.stations.filter(x => x.type === kind && !x.real && !/^c\d/.test(x.id))) {
+      if (kind === 'med') { // ambulanceposten staan beperkt in OSM: dan bij het dichtstbijzijnde echte ziekenhuis
+        const h = nearestHospital([st.lat, st.lng]);
+        if (h) { st.real = true; moveStation(st, h.lat, h.lng, `Ambulancepost ${shortStationName(h.name) || h.name}`); continue; }
+      }
+      if (pool.length || kind === 'hosp') removeStation(st);
+    }
+    stats[kind] = S.stations.filter(x => x.type === kind && x.real).length;
   }
   renderAll();
-  log(`📍 ${moved} posten staan op hun echte locatie (OpenStreetMap).`, '#22c55e');
-  return moved;
+  return stats;
+}
+let realPostsTimer = null;
+async function snapStationsToReal(quiet) {
+  if (!S.cities.length) return null;
+  const lats = S.cities.map(id => CITY_BY_ID[id].lat), lngs = S.cities.map(id => CITY_BY_ID[id].lng);
+  const bbox = [Math.min(...lats) - 0.15, Math.min(...lngs) - 0.2, Math.max(...lats) + 0.15, Math.max(...lngs) + 0.2];
+  let posts = null;
+  try { posts = await Promise.race([fetchRealPosts(bbox), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 100000))]); }
+  catch (e) { posts = null; }
+  if (!posts || !posts.length) {
+    if (!quiet) log('📍 De echte posten konden nog niet geladen worden: OpenStreetMap is druk. Ik probeer het elke minuut opnieuw.', '#f59e0b');
+    clearTimeout(realPostsTimer);
+    realPostsTimer = setTimeout(() => { if (S.stations.length) snapStationsToReal(true); }, 60000);
+    return null;
+  }
+  clearTimeout(realPostsTimer);
+  let st;
+  try { st = applyRealPosts(posts); }
+  catch (e) { console.error('Echte posten toepassen mislukt', e); log('📍 De echte posten konden niet verwerkt worden.', '#ef4444'); return null; }
+  log(`📍 Echte posten geladen: ${st.fire} brandweer, ${st.pol} politie, ${st.hosp} ziekenhuizen, ${st.med} ambulanceposten.`, '#22c55e');
+  return st;
 }
 
 // ---------- Ziekenhuizen ----------
@@ -510,18 +591,24 @@ async function spawnCall() {
   for (let i = 0; i < S.cities.length; i++) { rc -= cw[i]; if (rc <= 0) { city = CITY_BY_ID[S.cities[i]]; break; } }
   const spread = 0.8 + city.size * 0.7;
   let [lat, lng] = offsetKm(city.lat, city.lng, gauss() * spread, gauss() * spread);
-  let geo = await geocodeQueued(lat, lng);
+  // 1. een echt adres uit de lijst van deze stad
+  const wantLoc = pick(VARIANT_SETS[type.cat].loc).id;
+  let place = null;
+  if (typeof loadPlaces === 'function') { try { await loadPlaces(city.id); } catch (e) { /* */ } place = pickPlace(city.id, wantLoc); }
+  // 2. anders: dichtstbijzijnd adres bij een punt (oude methode)
+  let geo = place ? null : await geocodeQueued(lat, lng);
   // oproepen van thuis: bij voorkeur een adres met huisnummer
-  if (geo && !geo.house && (type.cat === 'med' || type.cat === 'politie') && Math.random() < 0.8) {
+  if (!place && geo && !geo.house && (type.cat === 'med' || type.cat === 'politie') && Math.random() < 0.8) {
     const [la2, ln2] = offsetKm(city.lat, city.lng, gauss() * spread * 0.6, gauss() * spread * 0.6);
     const g2 = await geocodeQueued(la2, ln2); if (g2 && g2.house) geo = g2;
   }
   if (!S.running) return;
   const V = VARIANT_SETS[type.cat], sev = pick(SEVERITIES), pat = pick(V.pat), caller = pick(V.call);
-  const loc = geo ? { id: locFromGeo(geo) } : pick(V.loc);
+  const loc = place ? { id: place.kind === 'thuis' ? (['straat', 'snelweg', 'kruispunt'].includes(wantLoc) ? 'straat' : 'thuis') : place.kind } : geo ? { id: locFromGeo(geo) } : pick(V.loc);
   const truePrio = Math.min(3, Math.max(1, type.prio + sev.delta));
   let addr;
-  if (geo) { lat = geo.lat; lng = geo.lng; addr = `${geo.road}${geo.house ? ' ' + geo.house : ''}, ${geo.city || city.name.split(' (')[0]}`; }
+  if (place) { lat = place.lat; lng = place.lng; addr = place.addr; }
+  else if (geo) { lat = geo.lat; lng = geo.lng; addr = `${geo.road}${geo.house ? ' ' + geo.house : ''}, ${geo.city || city.name.split(' (')[0]}`; }
   else addr = `${pick(STREETS)} ${Math.floor(rnd(1, 180))}, ${city.name.split(' (')[0]}`;
   const facts = { ...type.facts };
   if (pat.txt) facts.personen = pat.txt;
@@ -1437,6 +1524,11 @@ function openEndShift() {
 }
 function endShift() {
   hide('#endModal');
+  if (typeof accountShift === 'function') {
+    const st = S.shiftStart || {};
+    accountShift({ region: regionLabel(), minutes: Math.round(S.time / 60), done: S.done - (st.done || 0), failed: S.failed - (st.failed || 0),
+      normHit: S.normHit - (st.normHit || 0), normTotal: S.normTotal - (st.normTotal || 0), credits: S.credits - (st.credits || 0), xp: S.xp - (st.xp || 0) });
+  }
   logbook('Dienst afgesloten.');
   S.running = false; S.time = 0; S.calls = []; S.incidents = []; S.radio = []; S.expanded = null; currentCall = null;
   for (const l of Object.values(layers)) l.clearLayers();
@@ -1531,10 +1623,11 @@ $('#startGame').onclick = async () => {
   showGame(); save(); buildWorld();
   $('#startGame').disabled = true;
   log('📍 Echte posten worden geladen…', '#38bdf8');
-  await snapStationsToReal();
+  await Promise.race([snapStationsToReal().catch(e => console.error(e)), new Promise(r => setTimeout(r, 20000))]);
   $('#startGame').disabled = false;
   S.running = true;
   S.shiftStart = { done: S.done, failed: S.failed, credits: S.credits, xp: S.xp, normHit: S.normHit, normTotal: S.normTotal };
+  if (typeof preloadPlaces === 'function') preloadPlaces([...S.cities].sort((a, b) => CITY_BY_ID[b].size - CITY_BY_ID[a].size));
   shiftHandover();
   log(`🟢 Dienst gestart${S.player ? ` voor <b>${esc(S.player)}</b>` : ''} in <b>${esc(regionLabel())}</b>. Succes!`, '#22c55e');
   radio('Meldkamer', `Dienst gestart om ${clockStr()}. Alle ploegen: ${regionLabel()} is bemand.`, { me: true });
