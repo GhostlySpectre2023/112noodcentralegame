@@ -84,6 +84,8 @@ h2.sec { margin-top: 18px; }
 .prov > label { font-weight: 700; margin-bottom: 6px; }
 .prov .cities { display: flex; flex-wrap: wrap; gap: 4px 12px; }
 .prov .cities label { font-weight: 400; font-size: 14px; display: inline-flex; gap: 4px; align-items: center; }
+.consent { margin-top: 14px; align-items: flex-start; font-size: 14px; color: var(--muted); }
+.consent input { margin-top: 3px; flex: none; }
 .start-foot { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
 .steps { list-style: none; counter-reset: s; padding: 0; margin: 12px 0 0; display: grid; gap: 10px; }
 .steps li { counter-increment: s; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; display: grid; gap: 4px; }

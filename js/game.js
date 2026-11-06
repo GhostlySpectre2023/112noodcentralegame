@@ -20,7 +20,7 @@ const TYPE_BY_ID = {}; INCIDENT_TYPES.forEach(t => TYPE_BY_ID[t.id] = t);
 const S = {
   credits: 10000, xp: 0, done: 0, failed: 0, transfers: 0, normHit: 0, normTotal: 0,
   time: 0, speed: 1, sound: true, voice: true,
-  player: '', day: 'werkdag', start: 'now', startSec: 8 * 3600,
+  player: '', day: 'today', start: 'now', startSec: 8 * 3600,
   cities: [], extraVehicles: {}, customStations: [],
   stations: [], units: [], incidents: [], calls: [], radio: [],
   nextId: 1, nextSpawn: 5, running: false, nextHospTick: 0,
@@ -31,13 +31,13 @@ function load() {
   try {
     const d = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
     if (d) for (const k of ['credits', 'xp', 'done', 'failed', 'transfers', 'normHit', 'normTotal', 'cities', 'extraVehicles',
-      'customStations', 'sound', 'voice', 'player', 'day', 'start', 'theme']) if (d[k] !== undefined) S[k] = d[k];
+      'customStations', 'sound', 'voice', 'player', 'day', 'start', 'theme', 'consent']) if (d[k] !== undefined) S[k] = d[k];
   } catch (e) { /* geen opslag */ }
 }
 function save() {
   try {
     const o = {}; for (const k of ['credits', 'xp', 'done', 'failed', 'transfers', 'normHit', 'normTotal', 'cities', 'extraVehicles',
-      'customStations', 'sound', 'voice', 'player', 'day', 'start', 'theme']) o[k] = S[k];
+      'customStations', 'sound', 'voice', 'player', 'day', 'start', 'theme', 'consent']) o[k] = S[k];
     localStorage.setItem(SAVE_KEY, JSON.stringify(o));
   } catch (e) { /* negeren */ }
 }
@@ -58,7 +58,7 @@ const clockStr = (sec = clockSec()) => p2(sec / 3600) + ':' + p2(sec / 60 % 60);
 const clockLong = (sec = clockSec()) => clockStr(sec) + ':' + p2(sec % 60);
 const isNight = () => { const h = clockSec() / 3600; return h < 7 || h >= 21; };
 function dateStr() {
-  const d = new Date(S.baseDate || Date.now()); d.setDate(d.getDate() + Math.floor(totalSec() / 86400));
+  const d = currentDate();
   return d.toLocaleDateString('nl-BE', { weekday: 'short', day: 'numeric', month: 'short' });
 }
 const DAY_NAMES = ['zo', 'ma', 'di', 'wo', 'do', 'vr', 'za'];
@@ -277,8 +277,9 @@ function availableTypes() {
   const lv = level();
   return INCIDENT_TYPES.filter(t => (t.minLevel || 0) < lv + 1 && Object.keys(t.need).every(hasType));
 }
+function currentDate() { const d = new Date(S.baseDate || Date.now()); d.setDate(d.getDate() + Math.floor(totalSec() / 86400)); return d; }
 function hourFactor() {
-  const h = Math.floor(clockSec() / 3600), we = S.day === 'weekend';
+  const h = Math.floor(clockSec() / 3600), wd = currentDate().getDay(), we = wd === 0 || wd === 6 || (wd === 5 && h >= 18);
   if (h < 6) return we ? 0.9 : 0.5;
   if (h < 10) return 1.1;
   if (h < 18) return 1.0;
@@ -912,7 +913,11 @@ function openStart() {
   $('#runningText').textContent = running ? `Je dienst in ${regionLabel()} loopt nog (${clockStr()}, ${S.incidents.length} lopende inzetten). Hij staat op pauze.` : 'Er loopt nu geen dienst. Start hieronder een nieuwe.';
   $('#btnResume').classList.toggle('hidden', !running);
   S.pendingCities = [...S.cities]; S.running = false;
+  if (![...$('#pStart').options].length || $('#pStart').options.length < 5) for (let h = 0; h < 24; h++) $('#pStart').insertAdjacentHTML('beforeend', `<option value="${p2(h)}:00">${p2(h)}:00</option>`);
   $('#pName').value = S.player; $('#pDay').value = S.day; $('#pStart').value = S.start;
+  if (!$('#pDay').value) $('#pDay').value = 'today';
+  if (!$('#pStart').value) $('#pStart').value = 'now';
+  $('#pConsent').checked = !!S.consent;
   $('#citySearch').value = ''; renderStart(); hide('#game'); show('#home'); window.scrollTo(0, 0);
 }
 function toggleCities(ids, on) {
@@ -1031,15 +1036,21 @@ $('#selAll').onclick = () => toggleCities(Object.keys(CITY_BY_ID), true);
 $('#selNone').onclick = () => toggleCities(Object.keys(CITY_BY_ID), false);
 $('#startGame').onclick = () => {
   if (!S.pendingCities.length) return;
+  if (!$('#pConsent').checked) { $('#pConsent').closest('label').style.color = 'var(--bad)'; $('#pConsent').focus(); return; }
+  S.consent = true;
   if (!$('#keepProgress').checked) { Object.assign(S, { credits: 10000, xp: 0, done: 0, failed: 0, transfers: 0, normHit: 0, normTotal: 0, extraVehicles: {}, customStations: [] }); }
   S.player = $('#pName').value.trim(); S.day = $('#pDay').value; S.start = $('#pStart').value;
   if (S.start === 'now') { const d = new Date(); S.startSec = d.getHours() * 3600 + d.getMinutes() * 60; }
+  else if (S.start === 'random') S.startSec = Math.floor(Math.random() * 24) * 3600 + Math.floor(Math.random() * 4) * 900;
   else { const [h, m] = S.start.split(':').map(Number); S.startSec = h * 3600 + m * 60; }
   S.cities = [...S.pendingCities]; S.pendingCities = null; S.time = 0; S.nextHospTick = 0; currentCall = null;
-  { const d = new Date(), wd = d.getDay(), we = wd === 0 || wd === 6;
-    if (S.day === 'weekend' && !we) d.setDate(d.getDate() + (6 - wd));
-    if (S.day === 'werkdag' && we) d.setDate(d.getDate() + (wd === 6 ? 2 : 1));
-    d.setHours(0, 0, 0, 0); S.baseDate = d.getTime(); }
+  { const d = new Date(); d.setHours(0, 0, 0, 0);
+    let want = null;
+    if (S.day === 'werkdag') want = 1 + Math.floor(Math.random() * 5);
+    else if (S.day === 'weekend') want = Math.random() < 0.5 ? 6 : 0;
+    else if (/^[0-6]$/.test(S.day)) want = +S.day;
+    if (want !== null) d.setDate(d.getDate() + ((want - d.getDay() + 7) % 7));
+    S.baseDate = d.getTime(); }
   S.incNo = 100 + Math.floor(Math.random() * 60); S.logbook = []; setWeather(true);
   ['#callModal', '#dispatchModal', '#hospModal'].forEach(hide);
   showGame(); save(); buildWorld(); S.running = true;

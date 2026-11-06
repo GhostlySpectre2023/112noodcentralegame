@@ -55,11 +55,15 @@
             <input id="pName" type="text" placeholder="Jouw naam" maxlength="24">
           </label>
           <label>Dag
-            <select id="pDay"><option value="werkdag">Werkdag</option><option value="weekend">Weekend</option></select>
+            <select id="pDay">
+              <option value="today">Vandaag</option><option value="werkdag">Willekeurige werkdag</option><option value="weekend">Willekeurige weekenddag</option>
+              <option value="1">Maandag</option><option value="2">Dinsdag</option><option value="3">Woensdag</option><option value="4">Donderdag</option>
+              <option value="5">Vrijdag</option><option value="6">Zaterdag</option><option value="0">Zondag</option>
+            </select>
           </label>
           <label>Starttijd
             <select id="pStart">
-              <option value="now">Nu</option><option value="07:00">07:00 (vroege dienst)</option><option value="14:00">14:00 (late dienst)</option><option value="22:00">22:00 (nachtdienst)</option>
+              <option value="now">Nu</option><option value="random">Willekeurig</option>
             </select>
           </label>
         </div>
@@ -79,6 +83,7 @@
           <span id="selCount" class="muted">0 steden gekozen</span>
           <label class="chk"><input type="checkbox" id="keepProgress" checked> Krediet &amp; level behouden</label>
         </div>
+        <label class="chk consent"><input type="checkbox" id="pConsent"> <span>Ik ben minstens 16 jaar. Ik weet dat dit spel zware meldingen bevat, zoals ernstige ongevallen, geweld, intoxicaties en overlijdens, en dat alle bellers en situaties verzonnen zijn.</span></label>
         <button id="startGame" class="btn primary block">Dienst starten</button>
       </section>
 
