@@ -100,7 +100,7 @@ const PROVINCES = [
 
 // Voertuigtypes
 const VEHICLE_TYPES = {
-  AMB: { name: 'Ziekenwagen', short: 'AMB', service: 'med', color: '#f2c200', speed: 1.0, price: 2500 },
+  AMB: { name: 'Ziekenwagen', short: 'ZW', service: 'med', color: '#f2c200', speed: 1.0, price: 2500 },
   PIT: { name: 'Paramedisch Interventieteam', short: 'PIT', service: 'med', color: '#84cc16', speed: 1.1, price: 3500 },
   MUG: { name: 'MUG', short: 'MUG', service: 'med', color: '#ff8c00', speed: 1.15, price: 5000 },
   AP:  { name: 'Autopomp', short: 'AP', service: 'fire', color: '#d62828', speed: 0.9, price: 4000 },
@@ -254,4 +254,22 @@ const WEATHER = [
   { id: 'mist', name: 'Mist', icon: '🌫️', speed: 0.8, fly: false, boost: { vkl: 1.8, vkz: 1.5 }, w: 1.5 },
   { id: 'storm', name: 'Storm', icon: '🌪️', speed: 0.85, fly: false, boost: { water: 4, dier: 1.5 }, w: 1 },
   { id: 'ijzel', name: 'IJzel', icon: '🧊', speed: 0.7, fly: false, boost: { val: 2.5, vkl: 2, vkz: 1.5 }, w: 0.7 },
+];
+
+// Aangrenzende provincies (voor ondersteuning door een Belgische buurcentrale)
+const PROV_ADJ = {
+  wvl: ['ovl', 'hen'], ovl: ['wvl', 'ant', 'vbr', 'hen'], ant: ['ovl', 'vbr', 'lim'], vbr: ['ant', 'ovl', 'lim', 'bru', 'wbr', 'hen', 'lui', 'nam'],
+  lim: ['ant', 'vbr', 'lui'], bru: ['vbr'], hen: ['wvl', 'ovl', 'vbr', 'wbr', 'nam'], lui: ['lim', 'vbr', 'nam', 'lux'],
+  nam: ['hen', 'wbr', 'lui', 'lux', 'vbr'], wbr: ['vbr', 'bru', 'hen', 'nam'], lux: ['lui', 'nam'],
+};
+// Buitenlandse buurcentrales langs de grens
+const FOREIGN_CENTRALES = [
+  { id: 'nl-zeeland', name: 'Meldkamer Zeeland (NL)', lat: 51.497, lng: 3.611, provs: ['wvl', 'ovl', 'ant'] },
+  { id: 'nl-brabant', name: 'Meldkamer Brabant (NL)', lat: 51.589, lng: 4.776, provs: ['ant', 'lim'] },
+  { id: 'nl-limburg', name: 'Meldkamer Limburg (NL)', lat: 50.851, lng: 5.691, provs: ['lim', 'lui'] },
+  { id: 'de-aachen', name: 'Leitstelle Aachen (DE)', lat: 50.776, lng: 6.084, provs: ['lui'] },
+  { id: 'lu', name: 'Centrale 112 Luxemburg (LU)', lat: 49.611, lng: 6.130, provs: ['lux'] },
+  { id: 'fr-nord', name: 'SAMU Nord (FR)', lat: 50.630, lng: 3.058, provs: ['wvl', 'hen'] },
+  { id: 'fr-aisne', name: 'SAMU Aisne (FR)', lat: 49.564, lng: 3.620, provs: ['hen', 'nam'] },
+  { id: 'fr-ardennes', name: 'SAMU Ardennes (FR)', lat: 49.762, lng: 4.726, provs: ['nam', 'lux'] },
 ];

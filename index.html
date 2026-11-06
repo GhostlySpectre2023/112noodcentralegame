@@ -161,18 +161,37 @@
         </div>
       </section>
 
-      <section class="col col-map panel">
-        <div id="mapWrap">
-          <div id="map"></div>
-          <div id="log"></div>
-          <div id="buildHint" class="hidden">Klik op de kaart om je nieuwe post te plaatsen · <a href="#" id="cancelBuild">annuleren</a></div>
+      <section class="col col-mid">
+        <div class="panel col-map">
+          <div id="mapWrap">
+            <div id="map"></div>
+            <div id="mapToggles">
+              <button data-layer="stations" class="on">Posten</button>
+              <button data-layer="neighbors" class="on">Buurcentrales</button>
+              <button data-layer="hospitals" class="on">Ziekenhuizen</button>
+              <button data-layer="incidents" class="on">Inzetten</button>
+              <button data-layer="units" class="on">Voertuigen</button>
+            </div>
+            <div id="log"></div>
+            <div id="buildHint" class="hidden">Klik op de kaart om je nieuwe post te plaatsen · <a href="#" id="cancelBuild">annuleren</a></div>
+          </div>
+        </div>
+        <div class="panel col-radio">
+          <div class="phead">Radio <small class="phead-sub">digitaal netwerk</small> <span id="radioBadge" class="count alert hidden">0</span>
+            <button id="btnAckAll" class="phead-btn">Alles begrepen</button></div>
+          <div class="pbody">
+            <div class="ptt-row">
+              <button id="btnPTT" class="ptt" title="Houd ingedrukt (of de T-toets) en spreek">🎙️ Push-to-talk (T)</button>
+            </div>
+            <p class="muted small" id="pttHint">Houd de knop of de <b>T</b>-toets ingedrukt en zeg bv. <i>“begrepen”</i>, of bij een transportvraag de naam van het ziekenhuis.</p>
+            <div id="radioList" class="list"></div>
+          </div>
         </div>
       </section>
 
       <section class="col col-right panel">
         <nav class="tabs phead">
           <button data-tab="units" class="active">Eenheden <span class="count" id="unitCount">0</span></button>
-          <button data-tab="radio">Radio <span id="radioBadge" class="count alert hidden">0</span></button>
           <button data-tab="stations">Posten</button>
         </nav>
         <div id="tab-units" class="tab active">
@@ -193,14 +212,6 @@
           </div>
           <div id="unitList" class="ulist"></div>
           <p class="muted small pad">Klik op een voertuig om het op de kaart te tonen.</p>
-        </div>
-        <div id="tab-radio" class="tab">
-          <div class="ptt-row">
-            <button id="btnPTT" class="ptt" title="Houd ingedrukt (of de T-toets) en spreek">🎙️ Push-to-talk</button>
-            <button id="btnAckAll" class="btn ghost small">Alles begrepen</button>
-          </div>
-          <p class="muted small" id="pttHint">Houd de knop of de <b>T</b>-toets ingedrukt en zeg bv. <i>“begrepen”</i>, of bij een transportvraag de naam van het ziekenhuis.</p>
-          <div id="radioList" class="list"></div>
         </div>
         <div id="tab-stations" class="tab">
           <button id="btnBuild" class="btn primary block">➕ Nieuwe post bouwen</button>
@@ -237,22 +248,63 @@
     </div>
   </div>
 
-  <!-- Alarmeren -->
+  <!-- Inzet bewerken / alarmeren -->
   <div id="dispatchModal" class="modal hidden">
     <div class="modal-box wide">
-      <div class="call-head">🚨 Alarmeren · <span id="dispTitle"></span></div>
-      <div id="dispNeed" class="need-row"></div>
-      <div class="filters padx"><label class="chk"><input type="checkbox" id="dispOnlyNeeded" checked> Enkel benodigde types</label></div>
-      <div id="dispUnits" class="list unit-table"></div>
+      <div class="call-head">Inzet in <span id="dispTitle"></span> <button class="x" id="dispX" aria-label="Sluiten">✕</button></div>
+      <div class="call-body ed">
+        <div class="ed-grid">
+          <span class="ed-l">Inzetplaats</span><span id="edPlace" class="ed-v"></span>
+          <span class="ed-l">Protocol</span><select id="edProto"></select>
+          <span class="ed-l">Prioriteit</span><div id="edPrio" class="prio-row"></div>
+          <span class="ed-l">Notities</span><textarea id="edNotes" rows="2" placeholder="Notities bij deze inzet"></textarea>
+        </div>
+        <div id="dispNeed" class="proposal"></div>
+        <div class="ed-quick">
+          <span class="muted small">Snelkeuze:</span>
+          <button id="dispAuto" class="btn small">⚡ Voorstel</button>
+          <button class="btn small q" data-quick="AMB">ZW</button>
+          <button class="btn small q" data-quick="PIT">PIT</button>
+          <button class="btn small q" data-quick="MUG">MUG</button>
+          <button class="btn small q" data-quick="AP">AP</button>
+          <button class="btn small q" data-quick="POL">POL</button>
+        </div>
+        <div class="ed-checks">
+          <label class="chk"><input type="checkbox" id="edFire"> Brandweer verwittigen</label>
+          <label class="chk"><input type="checkbox" id="edPol"> Politie verwittigen</label>
+          <label class="chk"><input type="checkbox" id="dispOnlyNeeded"> Enkel benodigde types</label>
+        </div>
+        <div class="ed-listhead">
+          <b>Voertuigen</b>
+          <div class="seg"><button id="fltAll" class="on">Alle</button><button id="fltProv">Eigen provincie</button></div>
+        </div>
+        <div class="unit-head"><span>Voertuig</span><span>Type</span><span>Rijtijd</span><span>Afstand</span></div>
+        <div id="dispUnits" class="list unit-table"></div>
+      </div>
       <div class="modal-foot">
-        <button id="dispAuto" class="btn ghost">⚡ Automatisch voorstel</button>
+        <button id="dispCancelInc" class="btn danger">Inzet annuleren</button>
+        <span class="spacer"></span>
         <button id="dispCancel" class="btn ghost">Sluiten</button>
-        <button id="dispSend" class="btn primary">Alarmeer (<span id="dispCount">0</span>)</button>
+        <button id="dispSave" class="btn">Opslaan</button>
+        <button id="dispSendSupport" class="btn">Alarmeren + ondersteuning</button>
+        <button id="dispSend" class="btn primary">Toewijzen &amp; alarmeren (<span id="dispCount">0</span>)</button>
       </div>
     </div>
   </div>
 
-  <!-- Ziekenhuiskeuze -->
+  <!-- Ondersteuning aanvragen -->
+  <div id="supportModal" class="modal hidden">
+    <div class="modal-box">
+      <div class="call-head">Ondersteuning aanvragen <button class="x" id="supX" aria-label="Sluiten">✕</button></div>
+      <div class="call-body">
+        <p id="supText"></p>
+        <div id="supList" class="list"></div>
+        <p class="muted small">Een buurcentrale stuurt de ontbrekende middelen vanuit haar eigen gebied (€600 per voertuig).</p>
+      </div>
+    </div>
+  </div>
+
+
   <div id="hospModal" class="modal hidden">
     <div class="modal-box">
       <div class="call-head">🏥 Afvoer · <span id="hospTitle"></span></div>

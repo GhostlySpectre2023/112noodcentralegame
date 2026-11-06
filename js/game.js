@@ -142,8 +142,8 @@ function applyTheme() {
   for (const [k, l] of Object.entries(baseLayers)) { if (k === want) { if (!map.hasLayer(l)) l.addTo(map); } else if (map.hasLayer(l)) map.removeLayer(l); }
   for (const id of ['btnTheme', 'btnThemeHome']) { const b = document.getElementById(id); if (b) b.textContent = S.theme === 'light' ? '🌙' : '☀️'; }
 }
-const layers = { stations: L.layerGroup().addTo(map), units: L.layerGroup().addTo(map), incidents: L.layerGroup().addTo(map), routes: L.layerGroup().addTo(map) };
-L.control.layers(baseLayers, { 'Posten': layers.stations, 'Voertuigen': layers.units, 'Routes': layers.routes }, { position: 'topright' }).addTo(map);
+const layers = { stations: L.layerGroup().addTo(map), hospitals: L.layerGroup().addTo(map), neighbors: L.layerGroup().addTo(map), units: L.layerGroup().addTo(map), incidents: L.layerGroup().addTo(map), routes: L.layerGroup().addTo(map) };
+L.control.layers(baseLayers, { 'Routes': layers.routes }, { position: 'topright' }).addTo(map);
 
 // ---------- Routering (OSRM met fallback) ----------
 const routeCache = new Map();
@@ -180,7 +180,7 @@ function posOnRoute(m, f) {
 
 // ---------- Opbouw wereld ----------
 function buildWorld() {
-  layers.stations.clearLayers(); layers.units.clearLayers(); layers.incidents.clearLayers(); layers.routes.clearLayers();
+  layers.stations.clearLayers(); layers.hospitals.clearLayers(); layers.neighbors.clearLayers(); layers.units.clearLayers(); layers.incidents.clearLayers(); layers.routes.clearLayers();
   S.stations = []; S.units = []; S.incidents = []; S.calls = []; S.radio = [];
   for (const cid of S.cities) {
     const c = CITY_BY_ID[cid]; if (!c) continue;
@@ -201,6 +201,10 @@ function buildWorld() {
     h.specs = size >= 3 ? ['cathlab', 'stroke', 'trauma'] : size === 2 ? ['cathlab', 'stroke'] : [];
     h.load = rnd(0.2, 0.75);
   }
+  for (const nb of neighborCentrales(myProvinces())) {
+    L.marker([nb.lat, nb.lng], { icon: L.divIcon({ className: '', html: '<div class="mk mk-nb">☎️</div>', iconSize: [26, 26], iconAnchor: [13, 13] }) })
+      .bindTooltip(esc(nb.name)).addTo(layers.neighbors);
+  }
   const pts = S.cities.map(id => [CITY_BY_ID[id].lat, CITY_BY_ID[id].lng]);
   if (pts.length === 1) map.setView(pts[0], 13);
   else if (pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.15));
@@ -214,7 +218,7 @@ function addStation(st, baseFleet) {
   st.marker = L.marker([st.lat, st.lng], {
     icon: L.divIcon({ className: '', html: `<div class="mk mk-station" style="background:${T.color}">${T.icon}</div>`, iconSize: [26, 26], iconAnchor: [13, 13] }),
     zIndexOffset: -100,
-  }).bindTooltip(() => st.type === 'hosp' ? `${esc(st.name)} · spoed ${hospStatus(st)}` : esc(st.name)).addTo(layers.stations);
+  }).bindTooltip(() => st.type === 'hosp' ? `${esc(st.name)} · spoed ${hospStatus(st)}` : esc(st.name)).addTo(st.type === 'hosp' ? layers.hospitals : layers.stations);
   st.marker.on('click', () => { switchTab('stations'); const el = document.getElementById('st-' + st.id); if (el) el.scrollIntoView({ behavior: 'smooth' }); });
   [...baseFleet, ...(S.extraVehicles[st.id] || [])].forEach(t => addUnit(st, t));
 }
@@ -234,7 +238,8 @@ function addUnit(st, type, temp = false) {
 }
 function unitIcon(u) {
   const VT = VEHICLE_TYPES[u.type];
-  return L.divIcon({ className: '', html: `<div class="mk mk-unit ${u.status === 2 ? 'blink' : ''}" style="background:${VT.color}">${VT.short}</div>`, iconSize: [30, 18], iconAnchor: [15, 9] });
+  const label = u.status !== 1 ? `<span class="mk-label">${esc(u.name)}</span>` : '';
+  return L.divIcon({ className: '', html: `<div class="mk-unit-wrap"><div class="mk mk-unit ${u.status === 2 ? 'blink' : ''}" style="background:${VT.color}">${VT.short}</div>${label}</div>`, iconSize: [32, 18], iconAnchor: [16, 9] });
 }
 function setStatus(u, s) {
   u.status = s;
@@ -281,7 +286,7 @@ function needsMet(inc) {
 }
 function missingList(inc, need) {
   const h = incStatus(inc, need);
-  return Object.entries(need).filter(([k, n]) => h[k].scene + h[k].way < n).map(([k, n]) => `${n - h[k].scene - h[k].way}x ${k}`);
+  return Object.entries(need).filter(([k, n]) => h[k].scene + h[k].way < n).map(([k, n]) => `${n - h[k].scene - h[k].way}x ${VEHICLE_TYPES[k].short}`);
 }
 const fitsType = (needKey, unitType) => needKey === unitType || (SUBSTITUTE[needKey] || []).includes(unitType);
 
@@ -378,7 +383,7 @@ function needChips(need, have) {
     let cls = '';
     if (have) { const h = have[k] || { scene: 0, way: 0 }; cls = h.scene >= n ? 'ok' : (h.scene + h.way >= n ? 'way' : 'miss'); }
     const txt = have ? `${(have[k]?.scene || 0)}/${n}` : `${n}x`;
-    return `<span class="chip ${cls}" title="${VEHICLE_TYPES[k].name}">${txt} ${k}</span>`;
+    return `<span class="chip ${cls}" title="${VEHICLE_TYPES[k].name}">${txt} ${VEHICLE_TYPES[k].short}</span>`;
   }).join(' ');
 }
 function closeCall(c) { S.calls = S.calls.filter(x => x !== c); hide('#callModal'); currentCall = null; if (window.speechSynthesis) speechSynthesis.cancel(); dirty = true; }
@@ -413,7 +418,9 @@ function createIncident(c) {
   const T = TYPE_BY_ID[c.typeId], P = TYPE_BY_ID[c.protoId];
   const nUnits = Object.values(T.need).reduce((a, b) => a + b, 0);
   const inc = { no: ++S.incNo, id: c.id, typeId: T.id, protoId: P.id, prio: +c.prio, lat: c.lat, lng: c.lng, addr: c.addr, cityId: c.cityId,
-    created: S.time, patience: 240 + nUnits * 30, waited: 0, progress: 0, state: 'open', revealed: c.protoId === c.typeId, arrived: false };
+    created: S.time, patience: 240 + nUnits * 30, waited: 0, progress: 0, state: 'open', revealed: c.protoId === c.typeId, arrived: false,
+    text: c.text || '', notes: c.notes || '' };
+  { const d = currentDate(); inc.rit = `${String(d.getFullYear()).slice(2)}${p2(d.getMonth() + 1)}${p2(d.getDate())}${String(inc.no).padStart(5, '0')}`; }
   inc.marker = L.marker([inc.lat, inc.lng], {
     icon: L.divIcon({ className: '', html: `<div class="mk mk-inc">${P.icon}</div>`, iconSize: [32, 32], iconAnchor: [16, 16] }),
     zIndexOffset: 1000,
@@ -477,57 +484,135 @@ function pttStart() {
 }
 function pttStop() { if (rec && recActive) try { rec.stop(); } catch (e) { /* */ } }
 
-// ---------- Alarmeren ----------
-let dispInc = null, dispSel = new Set();
+// ---------- Buurcentrales ----------
+function myProvinces() { return [...new Set(S.cities.map(id => CITY_BY_ID[id].prov))]; }
+function neighborCentrales(provs) {
+  const out = [], seen = new Set(), manned = new Set(myProvinces().filter(pid => PROVINCES.find(p => p.id === pid).cities.every(c => S.cities.includes(c.id))));
+  for (const pid of provs) {
+    for (const adj of PROV_ADJ[pid] || []) {
+      if (manned.has(adj) || seen.has(adj)) continue; seen.add(adj);
+      const P = PROVINCES.find(p => p.id === adj), c0 = P.cities[0];
+      out.push({ id: 'be-' + adj, name: P.centrale + ` (${P.name})`, lat: c0.lat, lng: c0.lng });
+    }
+    for (const f of FOREIGN_CENTRALES) if (f.provs.includes(pid) && !seen.has(f.id)) { seen.add(f.id); out.push(f); }
+  }
+  return out;
+}
+let supInc = null;
+function openSupport(inc) {
+  if (!inc) { log('Selecteer eerst een inzet in het inzetoverzicht.', '#f59e0b'); return; }
+  supInc = inc;
+  const prov = CITY_BY_ID[inc.cityId].prov;
+  const list = neighborCentrales([prov]).map(nb => ({ nb, d: distM([nb.lat, nb.lng], [inc.lat, inc.lng]) })).sort((a, b) => a.d - b.d);
+  $('#supText').innerHTML = `Voor de inzet in <b>${esc(inc.addr)}</b>. Welke centrale wil je bellen?`;
+  $('#supList').innerHTML = list.map(({ nb, d }) => `<button class="sup-btn" data-nb="${nb.id}"><span>${esc(nb.name)}</span><small>${Math.round(d / 1000)} km</small></button>`).join('')
+    || '<p class="empty">Geen buurcentrale beschikbaar.</p>';
+  show('#supportModal');
+}
+function requestSupport(nbId) {
+  const inc = supInc; if (!inc) return;
+  const nb = neighborCentrales([CITY_BY_ID[inc.cityId].prov]).find(n => n.id === nbId); if (!nb) return;
+  hide('#supportModal'); supInc = null;
+  const need = shownNeed(inc), have = incStatus(inc), miss = [];
+  for (const [k, n] of Object.entries(need)) for (let i = have[k].scene + have[k].way; i < n; i++) miss.push(k);
+  if (!miss.length) { radio(nb.name, `Wij zien dat er voldoende middelen onderweg zijn naar ${inc.addr}. Geen ondersteuning nodig.`); return; }
+  const cost = miss.length * NEIGHBOR_PRICE;
+  if (S.credits < cost) { log(`💸 Ondersteuning kost €${cost}. Je hebt niet genoeg krediet.`, '#ef4444'); return; }
+  S.credits -= cost;
+  const [lat, lng] = offsetKm(nb.lat, nb.lng, rnd(-2, 2), rnd(-2, 2));
+  const st = { id: 'nb' + S.nextId++, type: 'med', name: nb.name, lat, lng, cityId: inc.cityId, unitCount: {}, virtual: true };
+  const names = [];
+  for (const k of miss) {
+    const u = addUnit(st, k, true); u.name = `${VEHICLE_TYPES[k].short} ${nb.name.split(' (')[0]} ${st.unitCount[k]}`;
+    u.lat = lat; u.lng = lng; u.marker.setLatLng([lat, lng]); dispatchUnit(u, inc); names.push(u.name);
+  }
+  logbook(`${incNo(inc)} ondersteuning door ${nb.name}: ${names.join(', ')}`);
+  radio(nb.name, `Ondersteuning bevestigd, we sturen ${names.join(', ')} naar ${inc.addr}.`);
+  log(`🤝 ${esc(nb.name)} stuurt ${miss.length} voertuig(en) (-€${cost}).`, '#38bdf8');
+}
+
+// ---------- Inzet bewerken / alarmeren ----------
+let dispInc = null, dispSel = new Set(), dispProvOnly = false;
 function openDispatch(id) {
   const inc = S.incidents.find(i => i.id === id); if (!inc) return;
   dispInc = inc; dispSel = new Set();
+  $('#dispTitle').textContent = inc.addr;
+  $('#edPlace').textContent = `${inc.addr} (${PROVINCES.find(p => p.id === CITY_BY_ID[inc.cityId].prov).name})`;
+  const opts = [];
+  for (const [cat, label] of Object.entries(CATEGORIES)) opts.push(`<optgroup label="${label}">` + INCIDENT_TYPES.filter(t => t.cat === cat).map(t => `<option value="${t.id}">${t.icon} ${t.name}</option>`).join('') + '</optgroup>');
+  $('#edProto').innerHTML = opts.join('');
+  $('#edProto').value = inc.revealed ? inc.typeId : inc.protoId;
+  $('#edNotes').value = inc.notes || '';
+  $('#edFire').checked = false; $('#edPol').checked = false;
   renderDispatch();
   show('#dispatchModal');
 }
-function dispCandidates() {
-  const need = shownNeed(dispInc), only = $('#dispOnlyNeeded').checked;
-  return S.units
-    .filter(u => isFree(u) && (!only || Object.keys(need).some(k => fitsType(k, u.type))))
-    .map(u => ({ u, d: distM([u.lat, u.lng], [dispInc.lat, dispInc.lng]) }))
-    .sort((a, b) => a.d - b.d).slice(0, 60);
-}
+function closeDispatch() { hide('#dispatchModal'); dispInc = null; }
 function etaMin(u, d) { if (VEHICLE_TYPES[u.type].air) return d / 55 / 60 + 3; return d * 1.35 / 12.5 / VEHICLE_TYPES[u.type].speed / S.weather.speed / 60 / (dispInc && dispInc.prio < 3 ? 1.25 : 1); }
+function dispCandidates() {
+  const need = shownNeed(dispInc), only = $('#dispOnlyNeeded').checked, prov = CITY_BY_ID[dispInc.cityId].prov;
+  return S.units
+    .filter(u => u.incidentId !== dispInc.id && !u.temp && (!only || Object.keys(need).some(k => fitsType(k, u.type))) && (!dispProvOnly || CITY_BY_ID[u.station.cityId]?.prov === prov))
+    .map(u => ({ u, d: distM([u.lat, u.lng], [dispInc.lat, dispInc.lng]) }))
+    .map(x => ({ ...x, eta: etaMin(x.u, x.d) }))
+    .sort((a, b) => (isFree(b.u) - isFree(a.u)) || a.eta - b.eta).slice(0, 80);
+}
 function renderDispatch() {
   if (!dispInc) return;
-  const P = PRIORITIES[dispInc.prio];
-  $('#dispTitle').innerHTML = `${incName(dispInc)} — ${esc(dispInc.addr)} <span class="chip" style="border-color:${P.color};color:${P.color}">${P.name} · norm ${P.norm} min</span>`;
-  $('#dispNeed').innerHTML = '<b style="margin-right:6px">Benodigd:</b> ' + needChips(shownNeed(dispInc), incStatus(dispInc)) +
-    ` <button id="dispNeighbor" class="small ghost" title="Een buurcentrale stuurt de ontbrekende middelen (€${NEIGHBOR_PRICE} per eenheid)">🤝 Hulp buurcentrale</button>`;
-  $('#dispNeighbor').onclick = neighborHelp;
-  const list = dispCandidates();
-  $('#dispUnits').innerHTML = list.length ? list.map(({ u, d }) => {
-    const VT = VEHICLE_TYPES[u.type], eta = etaMin(u, d);
-    return `<div class="unit-row ${dispSel.has(u.id) ? 'sel' : ''}" data-id="${u.id}">
-      <input type="checkbox" ${dispSel.has(u.id) ? 'checked' : ''}>
-      <span class="tag" style="background:${VT.color}">${VT.short}</span>
-      <span>${esc(u.name)} <span class="st st${u.status}">${u.status}</span><br><small class="muted">${esc(stationOf(u)?.name || '')}</small></span>
-      <span>${(d / 1000).toFixed(1)} km</span>
-      <span class="eta ${eta <= P.norm ? 'norm-ok' : 'norm-bad'}">~${Math.round(eta)} min</span></div>`;
-  }).join('') : '<p class="empty">Geen beschikbare voertuigen. Vraag hulp aan een buurcentrale of koop extra voertuigen.</p>';
+  const P = PRIORITIES[dispInc.prio], need = shownNeed(dispInc), have = incStatus(dispInc);
+  // geselecteerde voertuigen tellen mee in het voorstel
+  const selCounts = {}; for (const id of dispSel) { const u = S.units.find(x => x.id === id); if (u) selCounts[u.type] = (selCounts[u.type] || 0) + 1; }
+  const { all } = incCounts(dispInc), tot = { ...all }; for (const [k, n] of Object.entries(selCounts)) tot[k] = (tot[k] || 0) + n;
+  const cov = allocate(need, tot), miss = Object.entries(need).filter(([k, n]) => cov[k] < n).map(([k, n]) => `${n - cov[k]}x ${VEHICLE_TYPES[k].short}`);
+  $('#dispNeed').className = 'proposal' + (miss.length ? '' : ' ok');
+  $('#dispNeed').innerHTML = `<b>Inzetvoorstel ${P.name}</b> <span class="muted">(norm ${P.norm} min)</span>: ` +
+    (miss.length ? `nog nodig ${miss.join(', ')}` : 'voldoende middelen toegewezen') + ' · ' + needChips(need, have);
+  $('#edPrio').innerHTML = Object.entries(PRIORITIES).map(([k, p]) =>
+    `<button data-prio="${k}" class="${dispInc.prio == k ? 'on' : ''}" style="${dispInc.prio == k ? `background:${p.color};border-color:${p.color}` : `border-color:${p.color}`}">${p.name}</button>`).join('');
+  $('#fltAll').classList.toggle('on', !dispProvOnly); $('#fltProv').classList.toggle('on', dispProvOnly);
+  const assigned = S.units.filter(u => u.incidentId === dispInc.id);
+  const row = (u, d, eta, cls) => {
+    const VT = VEHICLE_TYPES[u.type];
+    return `<div class="unit-row ${cls}" data-id="${u.id}">
+      <span class="uname2"><span class="st st${grounded(u) && u.status === 1 ? 'x' : u.status}">${statusCode(u)}</span><span>${esc(u.name)}</span></span>
+      <span><span class="tag" style="background:${VT.color}">${VT.short}</span></span>
+      <span class="${eta <= P.norm ? 'norm-ok' : 'norm-bad'}">${Math.round(eta)} min</span>
+      <span class="km">${(d / 1000).toFixed(1)} km</span></div>`;
+  };
+  const html = assigned.map(u => { const d = distM([u.lat, u.lng], [dispInc.lat, dispInc.lng]); return row(u, d, etaMin(u, d), 'assigned'); }).join('') +
+    dispCandidates().map(({ u, d, eta }) => row(u, d, eta, isFree(u) ? (dispSel.has(u.id) ? 'sel' : '') : 'busy')).join('');
+  $('#dispUnits').innerHTML = html || '<p class="empty">Geen voertuigen. Vraag ondersteuning aan een buurcentrale.</p>';
   $('#dispCount').textContent = dispSel.size;
   $('#dispSend').disabled = !dispSel.size;
 }
+function nearestFree(type, exclude) {
+  return S.units.filter(u => isFree(u) && !u.temp && fitsType(type, u.type) && !exclude.has(u.id) && (!dispProvOnly || CITY_BY_ID[u.station.cityId]?.prov === CITY_BY_ID[dispInc.cityId].prov))
+    .map(u => ({ u, e: etaMin(u, distM([u.lat, u.lng], [dispInc.lat, dispInc.lng])) }))
+    .sort((a, b) => (a.u.type === type ? 0 : 1) - (b.u.type === type ? 0 : 1) || a.e - b.e)[0]?.u;
+}
 function autoSuggest() {
   const need = shownNeed(dispInc), have = incStatus(dispInc);
-  const all = S.units.filter(isFree)
-    .map(u => ({ u, d: distM([u.lat, u.lng], [dispInc.lat, dispInc.lng]) })).sort((a, b) => etaMin(a.u, a.d) - etaMin(b.u, b.d));
   dispSel = new Set();
-  for (const [k, n] of Object.entries(need)) {
-    let missing = n - (have[k].scene + have[k].way);
-    for (const { u } of all) { if (missing <= 0) break; if (u.type === k && !dispSel.has(u.id)) { dispSel.add(u.id); missing--; } }
-    for (const { u } of all) { if (missing <= 0) break; if (fitsType(k, u.type) && !dispSel.has(u.id)) { dispSel.add(u.id); missing--; } }
-  }
+  for (const [k, n] of Object.entries(need)) for (let i = have[k].scene + have[k].way; i < n; i++) { const u = nearestFree(k, dispSel); if (u) dispSel.add(u.id); }
   renderDispatch();
 }
-function sendSelected() {
+function quickAdd(type) { const u = nearestFree(type, dispSel); if (u) { dispSel.add(u.id); renderDispatch(); } else log(`Geen ${VEHICLE_TYPES[type].name.toLowerCase()} beschikbaar.`, '#f59e0b'); }
+function saveDispatchEdits() {
   const inc = dispInc; if (!inc) return;
-  const ids = [...dispSel]; hide('#dispatchModal'); dispInc = null;
+  inc.notes = $('#edNotes').value.trim();
+  const proto = $('#edProto').value;
+  if (proto && proto !== (inc.revealed ? inc.typeId : inc.protoId)) {
+    inc.protoId = proto;
+    if (!inc.arrived) inc.revealed = proto === inc.typeId;
+    const el = inc.marker.getElement()?.querySelector('.mk'); if (el) el.textContent = TYPE_BY_ID[inc.revealed ? inc.typeId : inc.protoId].icon;
+    logbook(`${incNo(inc)} protocol gewijzigd naar ${TYPE_BY_ID[proto].name}`);
+  }
+  dirty = true;
+}
+function sendSelected(withSupport) {
+  const inc = dispInc; if (!inc) return;
+  saveDispatchEdits();
+  const ids = [...dispSel]; closeDispatch();
   const sent = [];
   for (const id of ids) {
     const u = S.units.find(x => x.id === id);
@@ -539,29 +624,21 @@ function sendSelected() {
     logbook(`${incNo(inc)} gealarmeerd: ${sent.join(', ')}`);
     radio('Meldkamer', `${sent.join(', ')}: rij uit naar ${inc.addr}, ${TYPE_BY_ID[inc.revealed ? inc.typeId : inc.protoId].name.toLowerCase()}, ${PRIORITIES[inc.prio].name}.`, { me: true });
   }
+  if (withSupport === true) openSupport(inc);
+}
+function cancelIncident(inc) {
+  if (!inc) return;
+  const anyArrived = S.units.some(u => u.incidentId === inc.id && u.status === 3);
+  S.units.filter(u => u.incidentId === inc.id).forEach(u => { returnToStation(u); });
+  if (inc.typeId) { S.failed++; addXp(anyArrived ? -20 : -30); }
+  logbook(`${incNo(inc)} geannuleerd`);
+  log(`🚫 ${incNo(inc)} geannuleerd. Alle voertuigen keren terug.`, '#f59e0b');
+  if (S.expanded === inc.id) S.expanded = null;
+  removeIncident(inc);
 }
 function dispatchUnit(u, inc) {
   u.incidentId = inc.id; setStatus(u, 2); u.move = null;
   driveTo(u, [inc.lat, inc.lng], inc.prio < 3 ? 1.25 : 1, () => { if (u.incidentId === inc.id) arriveOnScene(u, inc); });
-}
-function neighborHelp() {
-  const inc = dispInc; if (!inc) return;
-  const need = shownNeed(inc), have = incStatus(inc);
-  const miss = [];
-  for (const [k, n] of Object.entries(need)) for (let i = have[k].scene + have[k].way; i < n; i++) miss.push(k);
-  if (!miss.length) { log('Alle benodigde middelen zijn al onderweg.', '#38bdf8'); return; }
-  const cost = miss.length * NEIGHBOR_PRICE;
-  if (S.credits < cost) { log(`💸 Hulp van een buurcentrale kost €${cost}.`, '#ef4444'); return; }
-  S.credits -= cost;
-  // virtuele post op ±18 km van het incident
-  const ang = Math.random() * Math.PI * 2;
-  const [lat, lng] = offsetKm(inc.lat, inc.lng, Math.sin(ang) * 18, Math.cos(ang) * 18);
-  const st = { id: 'nb' + S.nextId++, type: 'med', name: 'Buurcentrale', lat, lng, cityId: inc.cityId, unitCount: {}, virtual: true };
-  const names = [];
-  for (const k of miss) { const u = addUnit(st, k, true); u.lat = lat; u.lng = lng; u.marker.setLatLng([lat, lng]); dispatchUnit(u, inc); names.push(u.name); }
-  hide('#dispatchModal'); dispInc = null;
-  radio('Buurcentrale', `We sturen ${names.join(', ')} naar ${inc.addr}.`);
-  log(`🤝 Buurcentrale stuurt ${miss.length} eenheid/eenheden (-€${cost}).`, '#38bdf8');
 }
 async function driveTo(u, dest, urgent, onArrive) {
   const token = (u.moveToken = (u.moveToken || 0) + 1);
@@ -766,7 +843,7 @@ function shiftHandover() {
     const T = pick(types), cid = pick(S.cities), c = CITY_BY_ID[cid];
     const [lat, lng] = offsetKm(c.lat, c.lng, gauss() * c.size, gauss() * c.size);
     const inc = createIncident({ id: S.nextId++, typeId: T.id, protoId: T.id, prio: T.prio, lat, lng, cityId: cid, silent: true,
-      addr: `${pick(STREETS)} ${Math.floor(rnd(1, 180))}, ${c.name.split(' (')[0]}` });
+      addr: `${pick(STREETS)} ${Math.floor(rnd(1, 180))}, ${c.name.split(' (')[0]}`, text: pick(T.calls), notes: 'Overgenomen van de vorige ploeg.' });
     inc.created -= rnd(60, 160);
     dispInc = inc; autoSuggest();
     for (const id of dispSel) { const u = S.units.find(x => x.id === id); if (u) dispatchUnit(u, inc); }
@@ -800,26 +877,36 @@ function renderUI() {
   }).join('') : '<p class="empty">Geen oproepen in de wachtrij.</p>';
   if (!S.calls.length && S.logbook.length) $('#incomingList').innerHTML = '';
   $('#incidentList').innerHTML = S.incidents.length ? S.incidents.map(inc => {
-    const T = TYPE_BY_ID[inc.typeId], P = PRIORITIES[inc.prio];
+    const T = TYPE_BY_ID[inc.typeId], P = PRIORITIES[inc.prio], shown = TYPE_BY_ID[inc.revealed ? inc.typeId : inc.protoId];
     const pct = inc.state === 'working' ? inc.progress / T.dur * 100 : 0;
     const pat = Math.max(0, 1 - inc.waited / inc.patience) * 100;
     const mins = realMin(S.time - inc.created);
     const us = S.units.filter(u => u.incidentId === inc.id);
-    return `<div class="card" data-inc="${inc.id}"><div class="row"><span class="inc-no">${incNo(inc)}</span><span class="inc-time">${fmtTime(realMin(S.time - inc.created) * 60)}</span></div>
-      <div class="row"><span class="title">${incName(inc)}, <span style="color:${P.color}">${P.name}</span></span>
-      <button class="small" data-alarm="${inc.id}">Alarmeren</button></div>
+    const open = S.expanded === inc.id;
+    const chipsU = us.map(u => `<span class="uchip"><span class="st st${u.status}">${u.status}</span> ${esc(u.name)}</span>`).join('');
+    return `<div class="card ${open ? 'open' : ''}" data-inc="${inc.id}"><div class="row"><span class="inc-no">${incNo(inc)}</span><span class="inc-time">${fmtTime(mins * 60)}</span></div>
+      <div class="title">${shown.icon} ${shown.name}, <span style="color:${P.color}">${P.name}</span></div>
       <div class="sub">${esc(inc.addr)} ${inc.arrived ? '' : `· <span class="${mins <= P.norm ? 'norm-ok' : 'norm-bad'}">${Math.floor(mins)}/${P.norm} min</span>`}</div>
-      <div class="chips">${us.map(u => `<span class="uchip"><span class="st st${u.status}">${u.status}</span> ${esc(u.name)}</span>`).join('')}</div>
-      <div class="chips">${needChips(shownNeed(inc), incStatus(inc))}</div>
+      <div class="chips">${chipsU || '<span class="chip miss">nog geen voertuigen</span>'}</div>
+      ${open ? `<div class="acts">
+          <button class="btn small" data-act="edit">Inzet bewerken</button>
+          <button class="btn small" data-act="map">Toon op kaart</button>
+          <button class="btn small" data-act="support">Ondersteuning aanvragen</button>
+          <button class="btn small danger" data-act="cancel">Inzet annuleren</button></div>
+        <dl class="dl">
+          <dt>Ritnummer</dt><dd>${inc.rit}</dd>
+          <dt>Inzetplaats</dt><dd>${esc(inc.addr)}</dd>
+          <dt>Protocol</dt><dd>${shown.name}, ${P.name}</dd>
+          <dt>Nodig</dt><dd>${needChips(shownNeed(inc), incStatus(inc))}</dd>
+          <dt>Notities</dt><dd>${esc(inc.notes || '—')}</dd>
+          <dt>Melding</dt><dd class="quote">${esc(inc.text || '—')}</dd>
+        </dl>` : `<div class="chips">${needChips(shownNeed(inc), incStatus(inc))}</div>`}
       ${inc.state === 'working' ? `<div class="bar"><div style="width:${pct}%"></div></div>` : `<div class="bar timer" title="Resterende tijd"><div style="width:${pat}%;background:${pat < 30 ? '#ef4444' : ''}"></div></div>`}
     </div>`;
   }).join('') : '<p class="empty">Geen lopende inzetten.</p>';
-  if (radioDirty && $('#tab-radio').classList.contains('active')) renderRadio();
+  if (radioDirty) renderRadio();
   if ($('#tab-units').classList.contains('active')) renderUnits();
-  if (!$('#dispatchModal').classList.contains('hidden') && dispInc) {
-    $('#dispNeed').querySelectorAll('.chip').forEach(e => e.remove());
-    $('#dispNeed b').insertAdjacentHTML('afterend', ' ' + needChips(shownNeed(dispInc), incStatus(dispInc)));
-  }
+
 }
 function renderRadio() {
   radioDirty = false;
@@ -861,8 +948,8 @@ function renderStations() {
     const units = S.units.filter(u => u.stationId === st.id);
     const counts = {}; units.forEach(u => counts[u.type] = (counts[u.type] || 0) + 1);
     return `<div class="card" id="st-${st.id}" data-st="${st.id}"><div class="row"><span class="title">${T.icon} ${esc(st.name)}</span><span class="sub">${units.length} voertuigen</span></div>
-      <div class="chips">${Object.entries(counts).map(([k, n]) => `<span class="chip">${n}x ${k}</span>`).join('')}</div>
-      <div class="chips">${T.allowed.map(k => `<button class="small" data-buy="${st.id}|${k}" title="${VEHICLE_TYPES[k].name}">+ ${k} €${VEHICLE_TYPES[k].price}</button>`).join('')}</div></div>`;
+      <div class="chips">${Object.entries(counts).map(([k, n]) => `<span class="chip">${n}x ${VEHICLE_TYPES[k].short}</span>`).join('')}</div>
+      <div class="chips">${T.allowed.map(k => `<button class="small" data-buy="${st.id}|${k}" title="${VEHICLE_TYPES[k].name}">+ ${VEHICLE_TYPES[k].short} €${VEHICLE_TYPES[k].price}</button>`).join('')}</div></div>`;
   }).join('');
 }
 function renderAll() {
@@ -884,7 +971,6 @@ function switchTab(t) {
   $$('.tab').forEach(s => s.classList.toggle('active', s.id === 'tab-' + t));
   if (t === 'units') renderUnits();
   if (t === 'stations') renderStations();
-  if (t === 'radio') renderRadio();
 }
 function show(s) { $(s).classList.remove('hidden'); }
 function hide(s) { $(s).classList.add('hidden'); }
@@ -991,9 +1077,23 @@ $('#incomingList').onclick = e => {
   const c = e.target.closest('[data-call]'); if (c) openCall(+c.dataset.call);
 };
 $('#incidentList').onclick = e => {
-  const a = e.target.closest('[data-alarm]'); if (a) { openDispatch(+a.dataset.alarm); return; }
-  const c = e.target.closest('[data-inc]'); if (c) { const inc = S.incidents.find(i => i.id == c.dataset.inc); if (inc) map.flyTo([inc.lat, inc.lng], 15, { duration: 0.6 }); }
+  const c = e.target.closest('[data-inc]'); if (!c) return;
+  const inc = S.incidents.find(i => i.id == c.dataset.inc); if (!inc) return;
+  const a = e.target.closest('[data-act]');
+  if (!a) { S.expanded = S.expanded === inc.id ? null : inc.id; dirty = true; return; }
+  const act = a.dataset.act;
+  if (act === 'edit') openDispatch(inc.id);
+  else if (act === 'map') map.flyTo([inc.lat, inc.lng], 15, { duration: 0.6 });
+  else if (act === 'support') openSupport(inc);
+  else if (act === 'cancel') { if (a.dataset.sure) cancelIncident(inc); else { a.dataset.sure = '1'; a.textContent = 'Zeker? Klik opnieuw'; setTimeout(() => { delete a.dataset.sure; }, 3000); } }
 };
+$('#mapToggles').onclick = e => {
+  const b = e.target.closest('[data-layer]'); if (!b) return;
+  const l = layers[b.dataset.layer], on = !map.hasLayer(l);
+  on ? l.addTo(map) : map.removeLayer(l); b.classList.toggle('on', on);
+};
+$('#supList').onclick = e => { const b = e.target.closest('[data-nb]'); if (b) requestSupport(b.dataset.nb); };
+$('#supX').onclick = () => { hide('#supportModal'); supInc = null; };
 $('#radioList').onclick = e => {
   const a = e.target.closest('[data-ack]'); if (a) { ackRadio(S.radio.find(m => m.id == a.dataset.ack)); renderRadio(); return; }
   const q = e.target.closest('[data-hospq]'); if (q) { const [u, h] = q.dataset.hospq.split('|'); chooseHospital(+u, h); renderRadio(); return; }
@@ -1017,20 +1117,35 @@ $('#btnTheme').onclick = $('#btnThemeHome').onclick = () => { S.theme = S.theme 
 $('#btnResume').onclick = () => { S.running = true; showGame(); };
 $('#btnNeighbor').onclick = () => {
   const c = S.calls.find(x => !x.answered);
-  if (c) transferCall(c); else log('Er wacht geen oproep om door te schakelen.', '#38bdf8');
+  if (c) { transferCall(c); return; }
+  openSupport(S.incidents.find(i => i.id === S.expanded));
 };
 $('#questions').onclick = e => { const b = e.target.closest('[data-q]'); if (b) askQuestion(b.dataset.q); };
 $('#callProto').onchange = e => { if (!currentCall) return; currentCall.protoId = e.target.value; if (e.target.value && !currentCall.prio) currentCall.prio = TYPE_BY_ID[e.target.value].prio; renderCall(); };
 $('#callPrio').onclick = e => { const b = e.target.closest('[data-prio]'); if (b && currentCall) { currentCall.prio = +b.dataset.prio; renderCall(); } };
 $('#callAccept').onclick = acceptCall; $('#callReject').onclick = rejectCall; $('#callTransfer').onclick = () => transferCall();
 $('#dispUnits').onclick = e => {
-  const r = e.target.closest('[data-id]'); if (!r) return; const id = +r.dataset.id;
+  const r = e.target.closest('[data-id]'); if (!r || r.classList.contains('busy') || r.classList.contains('assigned')) return; const id = +r.dataset.id;
   dispSel.has(id) ? dispSel.delete(id) : dispSel.add(id); renderDispatch();
 };
 $('#dispOnlyNeeded').onchange = renderDispatch;
 $('#dispAuto').onclick = autoSuggest;
-$('#dispCancel').onclick = () => { hide('#dispatchModal'); dispInc = null; };
-$('#dispSend').onclick = sendSelected;
+$$('#dispatchModal [data-quick]').forEach(b => b.onclick = () => quickAdd(b.dataset.quick));
+$('#edFire').onchange = e => { if (e.target.checked) quickAdd('AP'); };
+$('#edPol').onchange = e => { if (e.target.checked) quickAdd('POL'); };
+$('#edPrio').onclick = e => { const b = e.target.closest('[data-prio]'); if (b && dispInc) { dispInc.prio = +b.dataset.prio; renderDispatch(); dirty = true; } };
+$('#edProto').onchange = () => { saveDispatchEdits(); renderDispatch(); };
+$('#fltAll').onclick = () => { dispProvOnly = false; renderDispatch(); };
+$('#fltProv').onclick = () => { dispProvOnly = true; renderDispatch(); };
+$('#dispCancel').onclick = $('#dispX').onclick = closeDispatch;
+$('#dispSave').onclick = () => { saveDispatchEdits(); closeDispatch(); };
+$('#dispSend').onclick = () => sendSelected(false);
+$('#dispSendSupport').onclick = () => sendSelected(true);
+$('#dispCancelInc').onclick = e => {
+  const b = e.currentTarget;
+  if (b.dataset.sure) { delete b.dataset.sure; b.textContent = 'Inzet annuleren'; const inc = dispInc; closeDispatch(); cancelIncident(inc); }
+  else { b.dataset.sure = '1'; b.textContent = 'Zeker? Klik opnieuw'; setTimeout(() => { delete b.dataset.sure; b.textContent = 'Inzet annuleren'; }, 3000); }
+};
 $('#btnBuild').onclick = startBuild;
 $('#cancelBuild').onclick = e => { e.preventDefault(); stopBuild(); };
 $('#buildCancel').onclick = () => hide('#buildModal');
@@ -1066,7 +1181,7 @@ $('#startGame').onclick = () => {
     if (want !== null) d.setDate(d.getDate() + ((want - d.getDay() + 7) % 7));
     S.baseDate = d.getTime(); }
   S.incNo = 100 + Math.floor(Math.random() * 60); S.logbook = []; setWeather(true);
-  ['#callModal', '#dispatchModal', '#hospModal'].forEach(hide);
+  ['#callModal', '#dispatchModal', '#hospModal', '#supportModal'].forEach(hide); S.expanded = null;
   showGame(); save(); buildWorld(); S.running = true;
   shiftHandover();
   log(`🟢 Dienst gestart${S.player ? ` voor <b>${esc(S.player)}</b>` : ''} in <b>${esc(regionLabel())}</b>. Succes!`, '#22c55e');
@@ -1074,7 +1189,7 @@ $('#startGame').onclick = () => {
 };
 document.addEventListener('keydown', e => {
   const typing = /INPUT|SELECT|TEXTAREA/.test(e.target.tagName);
-  if (e.key === 'Escape') { ['#callModal', '#dispatchModal', '#buildModal', '#hospModal'].forEach(hide); dispInc = null; hospUnit = null; stopBuild(); currentCall = null; }
+  if (e.key === 'Escape') { ['#callModal', '#dispatchModal', '#buildModal', '#hospModal', '#supportModal'].forEach(hide); dispInc = null; hospUnit = null; stopBuild(); currentCall = null; }
   if (typing) return;
   if (e.code === 'KeyT' && !e.repeat) pttStart();
   if (e.key === ' ') { e.preventDefault(); setSpeed(S.speed ? 0 : 1); }
@@ -1085,7 +1200,7 @@ document.addEventListener('keyup', e => { if (e.code === 'KeyT') pttStop(); });
 load();
 applyTheme();
 fillHomeStats();
-$('#unitFilterType').innerHTML = '<option value="">Alle types</option>' + Object.entries(VEHICLE_TYPES).map(([k, v]) => `<option value="${k}">${k} · ${v.name}</option>`).join('');
+$('#unitFilterType').innerHTML = '<option value="">Alle types</option>' + Object.entries(VEHICLE_TYPES).map(([k, v]) => `<option value="${k}">${v.short} · ${v.name}</option>`).join('');
 $('#btnSound').textContent = S.sound ? '🔊' : '🔇';
 $('#btnVoice').style.opacity = S.voice ? 1 : 0.4;
 if (!S.cities.length) S.cities = PROVINCES[0].cities.map(c => c.id);
