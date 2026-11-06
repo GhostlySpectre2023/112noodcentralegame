@@ -166,19 +166,50 @@ async function getRoute(a, b) {
   if (osrmOk) {
     try {
       const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 4000);
-      const url = `https://router.project-osrm.org/route/v1/driving/${a[1]},${a[0]};${b[1]},${b[0]}?overview=simplified&geometries=geojson`;
+      const url = `https://router.project-osrm.org/route/v1/driving/${a[1]},${a[0]};${b[1]},${b[0]}?overview=full&geometries=geojson`;
       const r = await fetch(url, { signal: ctrl.signal }); clearTimeout(to);
       const j = await r.json();
       if (j.routes && j.routes[0]) {
         const rt = j.routes[0];
         res = { pts: rt.geometry.coordinates.map(c => [c[1], c[0]]), dist: rt.distance, dur: rt.duration };
-        res.pts.unshift(a); res.pts.push(b);
+        // voertuig blijft op de weg: start en einde zijn de punten waar de route de weg raakt
       }
     } catch (e) { osrmOk = false; setTimeout(() => { osrmOk = true; }, 60000); }
   }
   if (!res) { const d = distM(a, b) * 1.35, v = d < 3000 ? 8.5 : d < 10000 ? 12.5 : 18; res = { pts: [a, b], dist: d, dur: d / v }; }
   routeCache.set(key, res);
   return res;
+}
+function timeProfile(pts, cum) {
+  const tc = [0], total = cum[cum.length - 1] || 1;
+  for (let i = 1; i < pts.length; i++) {
+    const len = cum[i] - cum[i - 1];
+    let f = 1;
+    if (i >= 2) {
+      const a1 = Math.atan2(pts[i - 1][0] - pts[i - 2][0], pts[i - 1][1] - pts[i - 2][1]);
+      const a2 = Math.atan2(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+      let d = Math.abs(a2 - a1) * 180 / Math.PI; if (d > 180) d = 360 - d;
+      f = d > 60 ? 0.35 : d > 30 ? 0.6 : d > 12 ? 0.85 : 1;
+    }
+    const mid = (cum[i] + cum[i - 1]) / 2;
+    if (mid < 150 || total - mid < 150) f = Math.min(f, 0.5);
+    else if (len > 300) f = Math.min(1.25, f * 1.25); // lange rechte stukken: sneller
+    tc.push(tc[i - 1] + len / f);
+  }
+  return tc;
+}
+function posAtTime(m, f) {
+  const target = f * m.tcum[m.tcum.length - 1];
+  let i = 1; while (i < m.tcum.length - 1 && m.tcum[i] < target) i++;
+  const seg = m.tcum[i] - m.tcum[i - 1] || 1, t = Math.min(1, Math.max(0, (target - m.tcum[i - 1]) / seg));
+  const p = m.pts[i - 1], q = m.pts[i];
+  return [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t, Math.sign(q[1] - p[1])];
+}
+function setFacing(u, dir) {
+  if (!dir || dir === u.facing) return;
+  u.facing = dir;
+  const img = u.marker.getElement()?.querySelector('.mk-vimg');
+  if (img) img.classList.toggle('flip', dir < 0);
 }
 function prepRoute(pts) { const cum = [0]; for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + distM(pts[i - 1], pts[i])); return cum; }
 function posOnRoute(m, f) {
@@ -250,7 +281,7 @@ function addUnit(st, type, temp = false) {
 function unitIcon(u) {
   const VT = VEHICLE_TYPES[u.type];
   const label = u.status !== 1 ? `<span class="mk-label">${esc(u.name)}</span>` : '';
-  return L.divIcon({ className: '', html: `<div class="mk-unit-wrap"><img class="mk-vimg ${u.status === 2 ? 'blink' : ''}" src="${vehicleSVG(u.type)}" alt="${VT.short}">${label}</div>`, iconSize: [44, 21], iconAnchor: [22, 11] });
+  return L.divIcon({ className: '', html: `<div class="mk-unit-wrap"><img class="mk-vimg ${u.status === 2 ? 'blink' : ''} ${u.facing < 0 ? 'flip' : ''}" src="${vehicleSVG(u.type)}" alt="${VT.short}">${label}</div>`, iconSize: [50, 21], iconAnchor: [25, 11] });
 }
 const STATUS_SHORT = { 1: 'vrij in post', 2: 'onderweg', 3: 'ter plaatse', 4: 'transport', 5: 'terug naar post' };
 function setStatus(u, s) {
@@ -266,6 +297,58 @@ const stationOf = u => u.station;
 const grounded = u => VEHICLE_TYPES[u.type].air && (isNight() || !S.weather.fly);
 const isFree = u => (u.status === 1 || u.status === 5) && !grounded(u) && !u.offDuty;
 const statusCode = u => (u.offDuty || grounded(u)) && u.status === 1 ? '–' : u.status;
+
+// ---------- Echte posten (OpenStreetMap / Overpass) ----------
+async function fetchRealPosts(bbox) {
+  const key = 'mk112_posts_' + bbox.map(x => x.toFixed(2)).join('_');
+  try { const c = JSON.parse(localStorage.getItem(key) || 'null'); if (c && Date.now() - c.t < 7 * 864e5) return c.d; } catch (e) { /* */ }
+  const bb = `${bbox[0]},${bbox[1]},${bbox[2]},${bbox[3]}`;
+  const q = `[out:json][timeout:25];(nwr["amenity"="fire_station"](${bb});nwr["amenity"="police"](${bb});nwr["amenity"="hospital"]["emergency"="yes"](${bb});nwr["emergency"="ambulance_station"](${bb}););out center tags;`;
+  const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 20000);
+  const r = await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', body: 'data=' + encodeURIComponent(q),
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, signal: ctrl.signal });
+  clearTimeout(to);
+  const j = await r.json();
+  const d = (j.elements || []).map(e => {
+    const t = e.tags || {};
+    const kind = t.amenity === 'fire_station' ? 'fire' : t.amenity === 'police' ? 'pol' : t.amenity === 'hospital' ? 'hosp' : 'med';
+    return { lat: e.lat ?? e.center?.lat, lng: e.lon ?? e.center?.lon, name: t.name || t['name:nl'] || '', kind };
+  }).filter(x => x.lat && x.lng);
+  try { localStorage.setItem(key, JSON.stringify({ t: Date.now(), d })); } catch (e) { /* */ }
+  return d;
+}
+function moveStation(st, lat, lng, name) {
+  st.lat = lat; st.lng = lng; st.marker.setLatLng([lat, lng]);
+  if (name) st.name = name;
+  for (const u of S.units) if (u.station === st && u.status === 1 && !u.move) { u.lat = lat; u.lng = lng; u.marker.setLatLng([lat, lng]); }
+}
+async function snapStationsToReal() {
+  if (!S.cities.length) return 0;
+  const lats = S.cities.map(id => CITY_BY_ID[id].lat), lngs = S.cities.map(id => CITY_BY_ID[id].lng);
+  const bbox = [Math.min(...lats) - 0.15, Math.min(...lngs) - 0.2, Math.max(...lats) + 0.15, Math.max(...lngs) + 0.2];
+  let posts;
+  try { posts = await Promise.race([fetchRealPosts(bbox), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 22000))]); }
+  catch (e) { log('Echte posten konden niet geladen worden. De posten staan op een geschatte plek.', '#f59e0b'); return 0; }
+  let moved = 0;
+  for (const kind of ['fire', 'pol', 'hosp', 'med']) {
+    const pool = posts.filter(p => p.kind === kind), used = new Set();
+    const sts = S.stations.filter(s => s.type === kind && !/^c\d/.test(s.id));
+    // eerst de grootste steden, zodat die hun eigen post krijgen
+    sts.sort((a, b) => (CITY_BY_ID[b.cityId]?.size || 0) - (CITY_BY_ID[a.cityId]?.size || 0));
+    for (const st of sts) {
+      const c = CITY_BY_ID[st.cityId]; if (!c) continue;
+      let best = -1, bd = kind === 'med' ? 9000 : 12000;
+      pool.forEach((p, i) => { if (used.has(i)) return; const d = distM([c.lat, c.lng], [p.lat, p.lng]); if (d < bd) { bd = d; best = i; } });
+      if (best < 0) continue;
+      used.add(best); const p = pool[best];
+      const nm = p.name ? (kind === 'hosp' ? p.name : kind === 'fire' ? (/brandweer|post|kazerne|caserne|pompiers/i.test(p.name) ? p.name : `Brandweerpost ${p.name}`) : kind === 'pol' ? (/politie|police/i.test(p.name) ? p.name : `Politie ${p.name}`) : p.name) : '';
+      moveStation(st, p.lat, p.lng, nm); moved++;
+    }
+  }
+  renderAll();
+  log(`📍 ${moved} posten staan op hun echte locatie (OpenStreetMap).`, '#22c55e');
+  return moved;
+}
 
 // ---------- Ziekenhuizen ----------
 function hospStatus(h) { return h.load < 0.6 ? 'open' : h.load < 0.9 ? 'druk' : 'volzet'; }
@@ -704,7 +787,8 @@ async function driveTo(u, dest, urgent, onArrive, turnout = 0) {
   const r = air ? { pts: [[u.lat, u.lng], dest], dur: distM([u.lat, u.lng], dest) / 55 + 180 } : await getRoute([u.lat, u.lng], dest);
   if (u.moveToken !== token) return;
   const dur = Math.max(4, air ? r.dur / DRIVE_COMPRESS : r.dur / VEHICLE_TYPES[u.type].speed / S.weather.speed / DRIVE_COMPRESS / urgent);
-  u.move = { pts: r.pts, cum: prepRoute(r.pts), dur, t: -turnout, onArrive };
+  const cum = prepRoute(r.pts);
+  u.move = { pts: r.pts, cum, tcum: timeProfile(r.pts, cum), dur, t: -turnout, onArrive };
   if (u.line) layers.routes.removeLayer(u.line);
   u.line = L.polyline(r.pts, { color: VEHICLE_TYPES[u.type].color, weight: 3, opacity: 0.55, dashArray: urgent > 1 ? null : '4 6' }).addTo(layers.routes);
 }
@@ -847,8 +931,9 @@ function tick(now) {
     for (const u of [...S.units]) {
       if (u.move) {
         u.move.t += dt;
-        const f = Math.min(1, u.move.t / u.move.dur);
-        const p = posOnRoute(u.move, f); u.lat = p[0]; u.lng = p[1]; u.marker.setLatLng(p);
+        const f = Math.min(1, Math.max(0, u.move.t / u.move.dur));
+        const p = posAtTime(u.move, f); u.lat = p[0]; u.lng = p[1]; u.marker.setLatLng([p[0], p[1]]);
+        if (u.move.t > 0) setFacing(u, p[2]);
         if (f >= 1) {
           const cb = u.move.onArrive; u.move = null;
           if (u.line) { layers.routes.removeLayer(u.line); u.line = null; }
@@ -1301,7 +1386,7 @@ $('#regionTree').onchange = e => {
 $('#citySearch').oninput = e => renderRegionTree(e.target.value);
 $('#selAll').onclick = () => toggleCities(Object.keys(CITY_BY_ID), true);
 $('#selNone').onclick = () => toggleCities(Object.keys(CITY_BY_ID), false);
-$('#startGame').onclick = () => {
+$('#startGame').onclick = async () => {
   if (!S.pendingCities.length) return;
   if (!$('#pConsent').checked) { $('#pConsent').closest('label').style.color = 'var(--bad)'; $('#pConsent').focus(); return; }
   S.consent = true;
@@ -1320,7 +1405,12 @@ $('#startGame').onclick = () => {
     S.baseDate = d.getTime(); }
   S.incNo = 100 + Math.floor(Math.random() * 60); S.logbook = []; setWeather(true);
   ['#callModal', '#dispatchModal', '#hospModal', '#supportModal'].forEach(hide); S.expanded = null;
-  showGame(); save(); buildWorld(); S.running = true;
+  showGame(); save(); buildWorld();
+  $('#startGame').disabled = true;
+  log('📍 Echte posten worden geladen…', '#38bdf8');
+  await snapStationsToReal();
+  $('#startGame').disabled = false;
+  S.running = true;
   S.shiftStart = { done: S.done, failed: S.failed, credits: S.credits, xp: S.xp, normHit: S.normHit, normTotal: S.normTotal };
   shiftHandover();
   log(`🟢 Dienst gestart${S.player ? ` voor <b>${esc(S.player)}</b>` : ''} in <b>${esc(regionLabel())}</b>. Succes!`, '#22c55e');

@@ -480,10 +480,12 @@ textarea { font: inherit; background: var(--panel2); color: var(--text); border:
 }
 
 /* ===== v10: voertuigtekeningen, dienst afsluiten ===== */
-.mk-vimg { width: 44px; height: 21px; display: block; filter: drop-shadow(0 1px 2px rgba(0,0,0,.55)); }
+.mk-vimg { width: 50px; height: 21px; display: block; filter: drop-shadow(0 1px 2px rgba(0,0,0,.55)); }
 .mk-vimg.blink { animation: vblink .8s infinite; }
 @keyframes vblink { 50% { filter: drop-shadow(0 0 6px #3b82f6) drop-shadow(0 0 2px #3b82f6); } }
-.mk-unit-wrap .mk-label { left: 46px; top: 2px; }
-.urow { grid-template-columns: 22px 34px 1fr; }
-.uimg { width: 34px; height: 16px; display: block; }
+.mk-unit-wrap .mk-label { left: 52px; top: 2px; }
+.urow { grid-template-columns: 22px 38px 1fr; }
+.uimg { width: 38px; height: 16px; display: block; }
 .end-dl { grid-template-columns: 110px 1fr; font-size: 14px; gap: 6px 12px; }
+
+.mk-vimg.flip { transform: scaleX(-1); }
